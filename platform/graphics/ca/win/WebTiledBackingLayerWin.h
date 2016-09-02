@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2015 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,45 +23,44 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef FontSelector_h
-#define FontSelector_h
+#ifndef WebTiledBackingLayerWin_h
+#define WebTiledBackingLayerWin_h
 
-#include "FontRanges.h"
-#include <wtf/Forward.h>
-#include <wtf/PassRefPtr.h>
-#include <wtf/RefCounted.h>
+#include "PlatformCALayerWinInternal.h"
 
 namespace WebCore {
 
-class FontDescription;
-class FontSelectorClient;
-
-class FontSelector : public RefCounted<FontSelector> {
+class WebTiledBackingLayerWin : public PlatformCALayerWinInternal {
 public:
-    virtual ~FontSelector() { }
+    WebTiledBackingLayerWin(PlatformCALayer*);
+    ~WebTiledBackingLayerWin();
 
-    virtual FontRanges fontRangesForFamily(const FontDescription&, const AtomicString&) = 0;
-    virtual PassRefPtr<Font> fallbackFontAt(const FontDescription&, size_t) = 0;
+    void displayCallback(CACFLayerRef, CGContextRef) override;
+    void setNeedsDisplayInRect(const FloatRect&) override;
+    void setNeedsDisplay() override;
 
-    virtual size_t fallbackFontCount() = 0;
-    virtual bool resolvesFamilyFor(const FontDescription&) const = 0;
+    bool isOpaque() const override;
+    void setOpaque(bool) override;
 
-    virtual void fontCacheInvalidated() { }
+    void setBounds(const FloatRect&) override;
 
-    virtual void registerForInvalidationCallbacks(FontSelectorClient&) = 0;
-    virtual void unregisterForInvalidationCallbacks(FontSelectorClient&) = 0;
+    float contentsScale() const override;
+    void setContentsScale(float) override;
 
-    virtual unsigned uniqueId() const = 0;
-    virtual unsigned version() const = 0;
+    void setBorderWidth(float) override;
+
+    void setBorderColor(const Color&) override;
+
+    // WebTiledBackingLayer Features
+    TileController* createTileController(PlatformCALayer* rootLayer);
+    TiledBacking* tiledBacking();
+    void invalidate();
+
+private:
+    RetainPtr<CACFLayerRef> m_tileParent;
+    std::unique_ptr<TileController> m_tileController;
 };
 
-class FontSelectorClient {
-public:
-    virtual ~FontSelectorClient() { }
+}
 
-    virtual void fontsNeedUpdate(FontSelector&) = 0;
-};
-
-} // namespace WebCore
-
-#endif // FontSelector_h
+#endif // WebTiledBackingLayerWin_h
