@@ -103,6 +103,16 @@ String DiagnosticLoggingKeys::engineFailedToLoadKey()
     return ASCIILiteral("engineFailedToLoad");
 }
 
+String DiagnosticLoggingKeys::entryRightlyNotWarmedUpKey()
+{
+    return ASCIILiteral("entryRightlyNotWarmedUp");
+}
+
+String DiagnosticLoggingKeys::entryWronglyNotWarmedUpKey()
+{
+    return ASCIILiteral("entryWronglyNotWarmedUp");
+}
+
 String DiagnosticLoggingKeys::navigationKey()
 {
     return ASCIILiteral("navigation");
@@ -121,6 +131,11 @@ String DiagnosticLoggingKeys::networkCacheKey()
 String DiagnosticLoggingKeys::networkKey()
 {
     return ASCIILiteral("network");
+}
+
+String DiagnosticLoggingKeys::networkProcessCrashedKey()
+{
+    return ASCIILiteral("networkProcessCrashed");
 }
 
 String DiagnosticLoggingKeys::neverSeenBeforeKey()
@@ -223,6 +238,16 @@ String DiagnosticLoggingKeys::inMemoryCacheKey()
     return ASCIILiteral("inMemoryCache");
 }
 
+String DiagnosticLoggingKeys::internalErrorKey()
+{
+    return ASCIILiteral("internalError");
+}
+
+String DiagnosticLoggingKeys::invalidSessionIDKey()
+{
+    return ASCIILiteral("invalidSessionID");
+}
+
 String DiagnosticLoggingKeys::isAttachmentKey()
 {
     return ASCIILiteral("isAttachment");
@@ -231,6 +256,11 @@ String DiagnosticLoggingKeys::isAttachmentKey()
 String DiagnosticLoggingKeys::isConditionalRequestKey()
 {
     return ASCIILiteral("isConditionalRequest");
+}
+
+String DiagnosticLoggingKeys::isDisabledKey()
+{
+    return ASCIILiteral("isDisabled");
 }
 
 String DiagnosticLoggingKeys::noCurrentHistoryItemKey()
@@ -253,6 +283,11 @@ String DiagnosticLoggingKeys::reasonKey()
     return ASCIILiteral("reason");
 }
 
+String DiagnosticLoggingKeys::redirectKey()
+{
+    return ASCIILiteral("redirect");
+}
+
 String DiagnosticLoggingKeys::isLoadingKey()
 {
     return ASCIILiteral("isLoading");
@@ -266,6 +301,11 @@ String DiagnosticLoggingKeys::documentLoaderStoppingKey()
 String DiagnosticLoggingKeys::cannotSuspendActiveDOMObjectsKey()
 {
     return ASCIILiteral("cannotSuspendActiveDOMObjects");
+}
+
+String DiagnosticLoggingKeys::createSharedBufferFailedKey()
+{
+    return ASCIILiteral("createSharedBufferFailed");
 }
 
 String DiagnosticLoggingKeys::deltaKey()
@@ -286,6 +326,11 @@ String DiagnosticLoggingKeys::audioKey()
 String DiagnosticLoggingKeys::backNavigationKey()
 {
     return ASCIILiteral("backNavigation");
+}
+
+String DiagnosticLoggingKeys::canCacheKey()
+{
+    return ASCIILiteral("canCache");
 }
 
 String DiagnosticLoggingKeys::cacheControlNoStoreKey()
@@ -331,6 +376,11 @@ String DiagnosticLoggingKeys::diskCacheAfterValidationKey()
 String DiagnosticLoggingKeys::reloadKey()
 {
     return ASCIILiteral("reload");
+}
+
+String DiagnosticLoggingKeys::replaceKey()
+{
+    return ASCIILiteral("replace");
 }
 
 String DiagnosticLoggingKeys::requestKey()
@@ -385,7 +435,7 @@ String DiagnosticLoggingKeys::scriptKey()
 
 String DiagnosticLoggingKeys::sourceKey()
 {
-    return ASCIILiteral("sourceKey");
+    return ASCIILiteral("source");
 }
 
 String DiagnosticLoggingKeys::streamingMedia()
@@ -398,14 +448,39 @@ String DiagnosticLoggingKeys::styleSheetKey()
     return ASCIILiteral("styleSheet");
 }
 
+String DiagnosticLoggingKeys::successfulSpeculativeWarmupWithRevalidationKey()
+{
+    return ASCIILiteral("successfulSpeculativeWarmupWithRevalidation");
+}
+
+String DiagnosticLoggingKeys::successfulSpeculativeWarmupWithoutRevalidationKey()
+{
+    return ASCIILiteral("successfulSpeculativeWarmupWithoutRevalidation");
+}
+
 String DiagnosticLoggingKeys::svgDocumentKey()
 {
     return ASCIILiteral("svgDocument");
 }
 
+String DiagnosticLoggingKeys::synchronousMessageFailedKey()
+{
+    return ASCIILiteral("synchronousMessageFailed");
+}
+
 String DiagnosticLoggingKeys::uncacheableStatusCodeKey()
 {
     return ASCIILiteral("uncacheableStatusCode");
+}
+
+String DiagnosticLoggingKeys::underMemoryPressureKey()
+{
+    return ASCIILiteral("underMemoryPressure");
+}
+
+String DiagnosticLoggingKeys::unknownEntryRequestKey()
+{
+    return ASCIILiteral("unknownEntryRequest");
 }
 
 String DiagnosticLoggingKeys::unlikelyToReuseKey()
@@ -486,6 +561,16 @@ String DiagnosticLoggingKeys::varyingHeaderMismatchKey()
 String DiagnosticLoggingKeys::videoKey()
 {
     return ASCIILiteral("video");
+}
+
+String DiagnosticLoggingKeys::wastedSpeculativeWarmupWithRevalidationKey()
+{
+    return ASCIILiteral("wastedSpeculativeWarmupWithRevalidation");
+}
+
+String DiagnosticLoggingKeys::wastedSpeculativeWarmupWithoutRevalidationKey()
+{
+    return ASCIILiteral("wastedSpeculativeWarmupWithoutRevalidation");
 }
 
 String DiagnosticLoggingKeys::webViewKey()

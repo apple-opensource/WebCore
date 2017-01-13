@@ -69,8 +69,9 @@ MemoryCache::MemoryCache()
     , m_deadDecodedDataDeletionInterval(defaultDecodedDataDeletionInterval)
     , m_liveSize(0)
     , m_deadSize(0)
-    , m_pruneTimer(*this, &MemoryCache::pruneTimerFired)
+    , m_pruneTimer(*this, &MemoryCache::prune)
 {
+    static_assert(sizeof(long long) > sizeof(unsigned), "Numerical overflow can happen when adjusting the size of the cached memory.");
 }
 
 auto MemoryCache::sessionResourceMap(SessionID sessionID) const -> CachedResourceMap*
@@ -148,7 +149,7 @@ void MemoryCache::revalidationSucceeded(CachedResource& revalidatingResource, co
     resource.setInCache(true);
     resource.updateResponseAfterRevalidation(response);
     insertInLRUList(resource);
-    int delta = resource.size();
+    long long delta = resource.size();
     if (resource.decodedSize() && resource.hasClients())
         insertInLiveDecodedResourcesList(resource);
     if (delta)
@@ -204,29 +205,24 @@ unsigned MemoryCache::liveCapacity() const
     return m_capacity - deadCapacity();
 }
 
-#if USE(CG)
-// FIXME: Remove the USE(CG) once we either make NativeImagePtr a smart pointer on all platforms or
-// remove the usage of CFRetain() in MemoryCache::addImageToCache() so as to make the code platform-independent.
 static CachedImageClient& dummyCachedImageClient()
 {
     static NeverDestroyed<CachedImageClient> client;
     return client;
 }
 
-bool MemoryCache::addImageToCache(NativeImagePtr image, const URL& url, const String& domainForCachePartition)
+bool MemoryCache::addImageToCache(NativeImagePtr&& image, const URL& url, const String& domainForCachePartition)
 {
     ASSERT(image);
     SessionID sessionID = SessionID::defaultSessionID();
     removeImageFromCache(url, domainForCachePartition); // Remove cache entry if it already exists.
 
-    RefPtr<BitmapImage> bitmapImage = BitmapImage::create(image, nullptr);
+    RefPtr<BitmapImage> bitmapImage = BitmapImage::create(WTFMove(image), nullptr);
     if (!bitmapImage)
         return false;
 
     std::unique_ptr<CachedImage> cachedImage = std::make_unique<CachedImage>(url, bitmapImage.get(), CachedImage::ManuallyCached, sessionID);
 
-    // Actual release of the CGImageRef is done in BitmapImage.
-    CFRetain(image);
     cachedImage->addClient(&dummyCachedImageClient());
     cachedImage->setDecodedSize(bitmapImage->decodedSize());
 #if ENABLE(CACHE_PARTITIONING)
@@ -264,7 +260,6 @@ void MemoryCache::removeImageFromCache(const URL& url, const String& domainForCa
     // resource may be deleted after this call.
     downcast<CachedImage>(*resource).removeClient(&dummyCachedImageClient());
 }
-#endif
 
 void MemoryCache::pruneLiveResources(bool shouldDestroyDecodedDataForAllLiveResources)
 {
@@ -275,6 +270,37 @@ void MemoryCache::pruneLiveResources(bool shouldDestroyDecodedDataForAllLiveReso
     unsigned targetSize = static_cast<unsigned>(capacity * cTargetPrunePercentage); // Cut by a percentage to avoid immediately pruning again.
 
     pruneLiveResourcesToSize(targetSize, shouldDestroyDecodedDataForAllLiveResources);
+}
+
+void MemoryCache::forEachResource(const std::function<void(CachedResource&)>& function)
+{
+    for (auto& unprotectedLRUList : m_allResources) {
+        Vector<CachedResourceHandle<CachedResource>> lruList;
+        copyToVector(*unprotectedLRUList, lruList);
+        for (auto& resource : lruList)
+            function(*resource);
+    }
+}
+
+void MemoryCache::forEachSessionResource(SessionID sessionID, const std::function<void (CachedResource&)>& function)
+{
+    auto it = m_sessionResources.find(sessionID);
+    if (it == m_sessionResources.end())
+        return;
+
+    Vector<CachedResourceHandle<CachedResource>> resourcesForSession;
+    copyValuesToVector(*it->value, resourcesForSession);
+
+    for (auto& resource : resourcesForSession)
+        function(*resource);
+}
+
+void MemoryCache::destroyDecodedDataForAllImages()
+{
+    MemoryCache::singleton().forEachResource([](CachedResource& resource) {
+        if (resource.isImage())
+            resource.destroyDecodedData();
+    });
 }
 
 void MemoryCache::pruneLiveResourcesToSize(unsigned targetSize, bool shouldDestroyDecodedDataForAllLiveResources)
@@ -313,9 +339,6 @@ void MemoryCache::pruneLiveResourcesToSize(unsigned targetSize, bool shouldDestr
             double elapsedTime = currentTime - current->m_lastDecodedAccessTime;
             if (!shouldDestroyDecodedDataForAllLiveResources && elapsedTime < cMinDelayBeforeLiveDecodedPrune)
                 return;
-
-            if (current->decodedDataIsPurgeable())
-                continue;
 
             // Destroy our decoded data. This will remove us from m_liveDecodedResources, and possibly move us
             // to a different LRU list in m_allResources.
@@ -426,7 +449,7 @@ void MemoryCache::remove(CachedResource& resource)
             // Remove from the appropriate LRU list.
             removeFromLRUList(resource);
             removeFromLiveDecodedResourcesList(resource);
-            adjustSize(resource.hasClients(), -static_cast<int>(resource.size()));
+            adjustSize(resource.hasClients(), -static_cast<long long>(resource.size()));
         } else
             ASSERT(resources->get(key) != &resource);
     }
@@ -619,13 +642,13 @@ void MemoryCache::removeFromLiveResourcesSize(CachedResource& resource)
     m_deadSize += resource.size();
 }
 
-void MemoryCache::adjustSize(bool live, int delta)
+void MemoryCache::adjustSize(bool live, long long delta)
 {
     if (live) {
-        ASSERT(delta >= 0 || ((int)m_liveSize + delta >= 0));
+        ASSERT(delta >= 0 || (static_cast<long long>(m_liveSize) + delta >= 0));
         m_liveSize += delta;
     } else {
-        ASSERT(delta >= 0 || ((int)m_deadSize + delta >= 0));
+        ASSERT(delta >= 0 || (static_cast<long long>(m_deadSize) + delta >= 0));
         m_deadSize += delta;
     }
 }
@@ -633,10 +656,8 @@ void MemoryCache::adjustSize(bool live, int delta)
 void MemoryCache::removeRequestFromSessionCaches(ScriptExecutionContext& context, const ResourceRequest& request)
 {
     if (is<WorkerGlobalScope>(context)) {
-        CrossThreadResourceRequestData* requestData = request.copyData().release();
-        downcast<WorkerGlobalScope>(context).thread().workerLoaderProxy().postTaskToLoader([requestData] (ScriptExecutionContext& context) {
-            auto request(ResourceRequest::adopt(std::unique_ptr<CrossThreadResourceRequestData>(requestData)));
-            MemoryCache::removeRequestFromSessionCaches(context, *request);
+        downcast<WorkerGlobalScope>(context).thread().workerLoaderProxy().postTaskToLoader([request = request.isolatedCopy()] (ScriptExecutionContext& context) {
+            MemoryCache::removeRequestFromSessionCaches(context, request);
         });
         return;
     }
@@ -718,13 +739,7 @@ void MemoryCache::evictResources(SessionID sessionID)
     if (disabled())
         return;
 
-    auto it = m_sessionResources.find(sessionID);
-    if (it == m_sessionResources.end())
-        return;
-    auto& resources = *it->value;
-
-    for (int i = 0, size = resources.size(); i < size; ++i)
-        remove(*resources.begin()->value);
+    forEachSessionResource(sessionID, [this] (CachedResource& resource) { remove(resource); });
 
     ASSERT(!m_sessionResources.contains(sessionID));
 }
@@ -741,11 +756,6 @@ void MemoryCache::prune()
         
     pruneDeadResources(); // Prune dead first, in case it was "borrowing" capacity from live.
     pruneLiveResources();
-}
-
-void MemoryCache::pruneTimerFired()
-{
-    prune();
 }
 
 void MemoryCache::pruneSoon()

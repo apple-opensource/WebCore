@@ -417,8 +417,9 @@ flex
 -webkit-flex
 inline-flex
 -webkit-inline-flex
--webkit-grid
--webkit-inline-grid
+contents
+grid
+inline-grid
 //none
 //
 // CSS_PROP_CURSOR:
@@ -522,7 +523,6 @@ line-through
 local
 loud
 lower
--webkit-marquee
 mix
 no-close-quote
 no-open-quote
@@ -623,7 +623,7 @@ self-end
 // flex-end
 // left
 // right
-true
+unsafe
 safe
 legacy
 
@@ -806,6 +806,9 @@ rating-level-indicator
 #if defined(ENABLE_SERVICE_CONTROLS) && ENABLE_SERVICE_CONTROLS
 image-controls-button
 #endif
+#if defined(ENABLE_APPLE_PAY) && ENABLE_APPLE_PAY
+-apple-pay-button
+#endif
 textarea
 #if defined(ENABLE_ATTACHMENT_ELEMENT) && ENABLE_ATTACHMENT_ELEMENT
 attachment
@@ -831,6 +834,17 @@ content
 content-box
 padding
 padding-box
+
+//
+// CSS_PROP_BREAK_BEFORE/AFTER/INSIDE
+//
+avoid-column
+avoid-page
+avoid-region
+page
+recto
+region
+verso
 
 // CSS_SHAPES
 margin-box
@@ -961,10 +975,6 @@ geometricPrecision
 economy
 exact
 
-// -webkit-color-correction
-//default
-sRGB
-
 #if defined(ENABLE_VIEW_MODE_CSS_MEDIA) && ENABLE_VIEW_MODE_CSS_MEDIA
 // (-webkit-view-mode:) media feature:
 floating
@@ -1039,6 +1049,7 @@ sideways
 sideways-right
 upright
 vertical-right
+mixed
 
 // -webkit-line-box-contain
 font
@@ -1053,8 +1064,10 @@ off
 
 // image-rendering
 // auto
-// optimizeSpeed
-optimizeQuality
+// optimizeSpeed (deprecated)
+optimizeQuality // ( deprecated)
+crisp-edges
+pixelated
 -webkit-crisp-edges
 -webkit-optimize-contrast
 
@@ -1145,10 +1158,10 @@ snap
 // stroke
 markers
 
-// -webkit-grid-{column-start|column-end|row-start|row-end}
+// grid-{column-start|column-end|row-start|row-end}
 span
 
-// -webkit-grid-auto-flow
+// grid-auto-flow
 dense
 
 #if defined(ENABLE_CSS3_TEXT) && ENABLE_CSS3_TEXT
@@ -1169,10 +1182,42 @@ from-intrinsic
 -webkit-partially-balanced
 #endif
 
+#if defined(ENABLE_APPLE_PAY) && ENABLE_APPLE_PAY
+// -apple-pay-button-style
+white-outline
+
+// -apple-pay-button-type
+plain
+buy
+set-up
+other
+#endif
+
 // font-synthesis
 weight
 style
 
 // will-change
 scroll-position
-contents
+//contents
+
+#if defined(ENABLE_TOUCH_EVENTS) && ENABLE_TOUCH_EVENTS
+// touch-action
+manipulation
+#endif
+
+// hanging-punctuation
+allow-end
+first
+force-end
+last
+
+// color-gamut
+p3
+rec2020
+
+#if defined(ENABLE_CSS_GRID_LAYOUT) && ENABLE_CSS_GRID_LAYOUT
+// auto-repeat
+auto-fill
+auto-fit
+#endif

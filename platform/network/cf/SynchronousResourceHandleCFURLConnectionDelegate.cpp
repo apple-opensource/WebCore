@@ -41,6 +41,7 @@
 #include <wtf/text/WTFString.h>
 
 #if PLATFORM(COCOA)
+#include "CFNetworkSPI.h"
 #include "WebCoreSystemInterface.h"
 #include "WebCoreURLResponse.h"
 #endif // PLATFORM(COCOA)
@@ -91,15 +92,15 @@ CFURLRequestRef SynchronousResourceHandleCFURLConnectionDelegate::willSendReques
     LOG(Network, "CFNet - SynchronousResourceHandleCFURLConnectionDelegate::willSendRequest(handle=%p) (%s)", m_handle, m_handle->firstRequest().url().string().utf8().data());
 
     ResourceRequest request = createResourceRequest(cfRequest, redirectResponse.get());
-    m_handle->willSendRequest(request, redirectResponse.get());
+    auto newRequest = m_handle->willSendRequest(WTFMove(request), redirectResponse.get());
 
-    if (request.isNull())
-        return 0;
+    if (newRequest.isNull())
+        return nullptr;
 
-    cfRequest = request.cfURLRequest(UpdateHTTPBody);
+    auto newCFRequest = newRequest.cfURLRequest(UpdateHTTPBody);
 
-    CFRetain(cfRequest);
-    return cfRequest;
+    CFRetain(newCFRequest);
+    return newCFRequest;
 }
 
 #if !PLATFORM(COCOA)
@@ -143,15 +144,17 @@ void SynchronousResourceHandleCFURLConnectionDelegate::didReceiveResponse(CFURLC
 
 #if PLATFORM(COCOA)
     // Avoid MIME type sniffing if the response comes back as 304 Not Modified.
-    CFHTTPMessageRef msg = wkGetCFURLResponseHTTPResponse(cfResponse);
+    auto msg = CFURLResponseGetHTTPResponse(cfResponse);
     int statusCode = msg ? CFHTTPMessageGetResponseStatusCode(msg) : 0;
 
-    if (statusCode != 304)
-        adjustMIMETypeIfNecessary(cfResponse);
+    if (statusCode != 304) {
+        bool isMainResourceLoad = m_handle->firstRequest().requester() == ResourceRequest::Requester::Main;
+        adjustMIMETypeIfNecessary(cfResponse, isMainResourceLoad);
+    }
 
 #if !PLATFORM(IOS)
     if (_CFURLRequestCopyProtocolPropertyForKey(m_handle->firstRequest().cfURLRequest(DoNotUpdateHTTPBody), CFSTR("ForceHTMLMIMEType")))
-        wkSetCFURLResponseMIMEType(cfResponse, CFSTR("text/html"));
+        CFURLResponseSetMIMEType(cfResponse, CFSTR("text/html"));
 #endif // !PLATFORM(IOS)
 #else
     if (!CFURLResponseGetMIMEType(cfResponse))
@@ -165,19 +168,26 @@ void SynchronousResourceHandleCFURLConnectionDelegate::didReceiveResponse(CFURLC
 #endif
 
 #if USE(QUICK_LOOK)
+    bool isQuickLookPreview = false;
     m_handle->setQuickLookHandle(QuickLookHandle::create(m_handle, this, cfResponse));
-    if (m_handle->quickLookHandle())
+    if (m_handle->quickLookHandle()) {
         cfResponse = m_handle->quickLookHandle()->cfResponse();
+        isQuickLookPreview = true;
+    }
 #endif
-    
+
     ResourceResponse resourceResponse(cfResponse);
 #if PLATFORM(COCOA) && ENABLE(WEB_TIMING)
     ResourceHandle::getConnectionTimingData(connection, resourceResponse.resourceLoadTiming());
 #else
     UNUSED_PARAM(connection);
 #endif
+
+#if USE(QUICK_LOOK)
+    resourceResponse.setIsQuickLook(isQuickLookPreview);
+#endif
     
-    m_handle->client()->didReceiveResponse(m_handle, resourceResponse);
+    m_handle->client()->didReceiveResponse(m_handle, WTFMove(resourceResponse));
 }
 
 void SynchronousResourceHandleCFURLConnectionDelegate::didReceiveData(CFDataRef data, CFIndex originalLength)

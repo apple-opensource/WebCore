@@ -39,6 +39,7 @@ class Document;
 class DocumentLoader;
 class FrameView;
 class Node;
+enum class HasInsecureContent;
 
 class CachedFrameBase {
 public:
@@ -61,11 +62,13 @@ protected:
     std::unique_ptr<CachedFramePlatformData> m_cachedFramePlatformData;
     bool m_isMainFrame;
     bool m_isComposited;
-    
+    Optional<HasInsecureContent> m_hasInsecureContent;
+
     Vector<std::unique_ptr<CachedFrame>> m_childFrames;
 };
 
 class CachedFrame : private CachedFrameBase {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     explicit CachedFrame(Frame&);
 
@@ -75,6 +78,9 @@ public:
 
     WEBCORE_EXPORT void setCachedFramePlatformData(std::unique_ptr<CachedFramePlatformData>);
     WEBCORE_EXPORT CachedFramePlatformData* cachedFramePlatformData();
+
+    WEBCORE_EXPORT void setHasInsecureContent(HasInsecureContent);
+    Optional<HasInsecureContent> hasInsecureContent() const { return m_hasInsecureContent; }
 
     using CachedFrameBase::document;
     using CachedFrameBase::view;

@@ -26,7 +26,12 @@
 #ifndef IntSize_h
 #define IntSize_h
 
+#include "PlatformExportMacros.h"
 #include <algorithm>
+
+#if PLATFORM(MAC) && defined __OBJC__
+#import <Foundation/NSGeometry.h>
+#endif
 
 #if USE(CG)
 typedef struct CGSize CGSize;
@@ -50,13 +55,10 @@ typedef struct _NSSize NSSize;
 typedef struct tagSIZE SIZE;
 #endif
 
-namespace WTF {
-class PrintStream;
-}
-
 namespace WebCore {
 
 class FloatSize;
+class TextStream;
 
 class IntSize {
 public:
@@ -121,9 +123,12 @@ public:
             m_height = minimumSize.height();
     }
 
-    int area() const
+    IntSize constrainedBetween(const IntSize& min, const IntSize& max) const;
+
+    template <typename T = WTF::CrashOnOverflow>
+    Checked<unsigned, T> area() const
     {
-        return m_width * m_height;
+        return Checked<unsigned, T>(abs(m_width)) * abs(m_height);
     }
 
     int diagonalLengthSquared() const
@@ -150,8 +155,6 @@ public:
     IntSize(const SIZE&);
     operator SIZE() const;
 #endif
-
-    void dump(WTF::PrintStream& out) const;
 
 private:
     int m_width, m_height;
@@ -195,6 +198,8 @@ inline bool operator!=(const IntSize& a, const IntSize& b)
 {
     return a.width() != b.width() || a.height() != b.height();
 }
+
+WEBCORE_EXPORT TextStream& operator<<(TextStream&, const IntSize&);
 
 } // namespace WebCore
 

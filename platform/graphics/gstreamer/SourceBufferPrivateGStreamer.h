@@ -43,13 +43,14 @@ namespace WebCore {
 
 class SourceBufferPrivateGStreamer final : public SourceBufferPrivate {
 public:
-    SourceBufferPrivateGStreamer(PassRefPtr<MediaSourceClientGStreamer>, const ContentType&);
+    static Ref<SourceBufferPrivateGStreamer> create(MediaSourceClientGStreamer&, const ContentType&);
     virtual ~SourceBufferPrivateGStreamer();
 
     virtual void setClient(SourceBufferPrivateClient*);
 
     virtual void append(const unsigned char* data, unsigned length);
     virtual void abort();
+    virtual void resetParserState();
     virtual void removedFromMediaSource();
 
     virtual MediaPlayer::ReadyState readyState() const;
@@ -63,6 +64,8 @@ public:
     virtual void notifyClientWhenReadyForMoreSamples(AtomicString);
 
 private:
+    SourceBufferPrivateGStreamer(MediaSourceClientGStreamer&, const ContentType&);
+
     ContentType m_type;
     RefPtr<MediaSourceClientGStreamer> m_client;
     SourceBufferPrivateClient* m_sourceBufferPrivateClient;

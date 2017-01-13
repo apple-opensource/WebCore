@@ -27,6 +27,10 @@
 
 /* Things that need to be defined globally should go into "config.h". */
 
+#if defined(HAVE_CONFIG_H) && HAVE_CONFIG_H && defined(BUILDING_WITH_CMAKE)
+#include "cmakeconfig.h"
+#endif
+
 #include <wtf/Platform.h>
 
 #if defined(__APPLE__)
@@ -166,6 +170,10 @@
 #ifdef __cplusplus
 #define new ("if you use new/delete make sure to include config.h at the top of the file"()) 
 #define delete ("if you use new/delete make sure to include config.h at the top of the file"()) 
+#endif
+
+#if USE(APPLE_INTERNAL_SDK)
+#include <WebKitAdditions/ApplePayWebCorePrefixAdditions.h>
 #endif
 
 /* When C++ exceptions are disabled, the C++ library defines |try| and |catch|

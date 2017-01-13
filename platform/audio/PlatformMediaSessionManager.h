@@ -44,19 +44,32 @@ class RemoteCommandListener;
 class PlatformMediaSessionManager : private RemoteCommandListenerClient, private SystemSleepListener::Client, private AudioHardwareListener::Client {
     WTF_MAKE_FAST_ALLOCATED;
 public:
+    WEBCORE_EXPORT static PlatformMediaSessionManager* sharedManagerIfExists();
     WEBCORE_EXPORT static PlatformMediaSessionManager& sharedManager();
+
+    static void updateNowPlayingInfoIfNecessary();
+
     virtual ~PlatformMediaSessionManager() { }
 
+    virtual void scheduleUpdateNowPlayingInfo() { }
     bool has(PlatformMediaSession::MediaType) const;
     int count(PlatformMediaSession::MediaType) const;
     bool activeAudioSessionRequired() const;
+    bool canProduceAudio() const;
+
+    WEBCORE_EXPORT virtual bool hasActiveNowPlayingSession() const { return false; }
+    WEBCORE_EXPORT virtual String lastUpdatedNowPlayingTitle() const { return emptyString(); }
+    WEBCORE_EXPORT virtual double lastUpdatedNowPlayingDuration() const { return NAN; }
+    WEBCORE_EXPORT virtual double lastUpdatedNowPlayingElapsedTime() const { return NAN; }
+
+    bool willIgnoreSystemInterruptions() const { return m_willIgnoreSystemInterruptions; }
+    void setWillIgnoreSystemInterruptions(bool ignore) { m_willIgnoreSystemInterruptions = ignore; }
 
     WEBCORE_EXPORT void beginInterruption(PlatformMediaSession::InterruptionType);
     WEBCORE_EXPORT void endInterruption(PlatformMediaSession::EndInterruptionFlags);
 
-    WEBCORE_EXPORT void applicationWillEnterForeground() const;
+    WEBCORE_EXPORT void applicationDidEnterForeground() const;
     WEBCORE_EXPORT void applicationWillEnterBackground() const;
-    WEBCORE_EXPORT void applicationDidEnterBackground(bool isSuspendedUnderLock) const;
 
     void stopAllMediaPlaybackForDocument(const Document*);
     WEBCORE_EXPORT void stopAllMediaPlaybackForProcess();
@@ -64,12 +77,9 @@ public:
     enum SessionRestrictionFlags {
         NoRestrictions = 0,
         ConcurrentPlaybackNotPermitted = 1 << 0,
-        InlineVideoPlaybackRestricted = 1 << 1,
-        MetadataPreloadingNotPermitted = 1 << 2,
-        AutoPreloadingNotPermitted = 1 << 3,
-        BackgroundProcessPlaybackRestricted = 1 << 4,
-        BackgroundTabPlaybackRestricted = 1 << 5,
-        InterruptedPlaybackNotPermitted = 1 << 6,
+        BackgroundProcessPlaybackRestricted = 1 << 1,
+        BackgroundTabPlaybackRestricted = 1 << 2,
+        InterruptedPlaybackNotPermitted = 1 << 3,
     };
     typedef unsigned SessionRestrictions;
 
@@ -80,10 +90,9 @@ public:
 
     virtual bool sessionWillBeginPlayback(PlatformMediaSession&);
     virtual void sessionWillEndPlayback(PlatformMediaSession&);
-
-    bool sessionRestrictsInlineVideoPlayback(const PlatformMediaSession&) const;
-
     virtual bool sessionCanLoadMedia(const PlatformMediaSession&) const;
+    virtual void sessionDidEndRemoteScrubbing(const PlatformMediaSession&) { };
+    virtual void clientCharacteristicsChanged(PlatformMediaSession&) { }
 
 #if PLATFORM(IOS)
     virtual void configureWireLessTargetMonitoring() { }
@@ -91,14 +100,19 @@ public:
 #endif
 
     void setCurrentSession(PlatformMediaSession&);
-    PlatformMediaSession* currentSession();
+    PlatformMediaSession* currentSession() const;
+
+    Vector<PlatformMediaSession*> currentSessionsMatching(std::function<bool(const PlatformMediaSession&)>);
+
+    void sessionIsPlayingToWirelessPlaybackTargetChanged(PlatformMediaSession&);
+    void sessionCanProduceAudioChanged(PlatformMediaSession&);
 
 protected:
     friend class PlatformMediaSession;
     explicit PlatformMediaSessionManager();
 
     void addSession(PlatformMediaSession&);
-    void removeSession(PlatformMediaSession&);
+    virtual void removeSession(PlatformMediaSession&);
 
     Vector<PlatformMediaSession*> sessions() { return m_sessions; }
 
@@ -108,16 +122,17 @@ private:
     void updateSessionState();
 
     // RemoteCommandListenerClient
-    WEBCORE_EXPORT virtual void didReceiveRemoteControlCommand(PlatformMediaSession::RemoteControlCommandType) override;
+    WEBCORE_EXPORT void didReceiveRemoteControlCommand(PlatformMediaSession::RemoteControlCommandType, const PlatformMediaSession::RemoteCommandArgument*) override;
+    WEBCORE_EXPORT bool supportsSeeking() const override;
 
     // AudioHardwareListenerClient
-    virtual void audioHardwareDidBecomeActive() override { }
-    virtual void audioHardwareDidBecomeInactive() override { }
-    virtual void audioOutputDeviceChanged() override;
+    void audioHardwareDidBecomeActive() override { }
+    void audioHardwareDidBecomeInactive() override { }
+    void audioOutputDeviceChanged() override;
 
     // SystemSleepListener
-    virtual void systemWillSleep() override;
-    virtual void systemDidWake() override;
+    void systemWillSleep() override;
+    void systemDidWake() override;
 
     SessionRestrictions m_restrictions[PlatformMediaSession::WebAudio + 1];
     Vector<PlatformMediaSession*> m_sessions;
@@ -131,6 +146,8 @@ private:
 #endif
 
     bool m_interrupted { false };
+    mutable bool m_isApplicationInBackground { false };
+    bool m_willIgnoreSystemInterruptions { false };
 };
 
 }

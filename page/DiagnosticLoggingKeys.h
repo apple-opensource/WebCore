@@ -37,7 +37,9 @@ public:
     WEBCORE_EXPORT static String backNavigationKey();
     WEBCORE_EXPORT static String cacheControlNoStoreKey();
     static String cachedResourceRevalidationKey();
+    static String canCacheKey();
     static String cannotSuspendActiveDOMObjectsKey();
+    WEBCORE_EXPORT static String createSharedBufferFailedKey();
     WEBCORE_EXPORT static String deltaKey();
     static String deniedByClientKey();
     static String deviceMotionKey();
@@ -47,14 +49,19 @@ public:
     static String diskCacheAfterValidationKey();
     static String documentLoaderStoppingKey();
     static String engineFailedToLoadKey();
+    WEBCORE_EXPORT static String entryRightlyNotWarmedUpKey();
+    WEBCORE_EXPORT static String entryWronglyNotWarmedUpKey();
     static String expiredKey();
     static String fontKey();
     static String hasPluginsKey();
     static String httpsNoStoreKey();
     static String imageKey();
     static String inMemoryCacheKey();
+    WEBCORE_EXPORT static String internalErrorKey();
+    WEBCORE_EXPORT static String invalidSessionIDKey();
     WEBCORE_EXPORT static String isAttachmentKey();
     WEBCORE_EXPORT static String isConditionalRequestKey();
+    static String isDisabledKey();
     static String isErrorPageKey();
     static String isExpiredKey();
     WEBCORE_EXPORT static String isReloadIgnoringCacheDataKey();
@@ -71,6 +78,7 @@ public:
     WEBCORE_EXPORT static String needsRevalidationKey();
     WEBCORE_EXPORT static String networkCacheKey();
     static String networkKey();
+    WEBCORE_EXPORT static String networkProcessCrashedKey();
     WEBCORE_EXPORT static String neverSeenBeforeKey();
     static String noCacheKey();
     static String noCurrentHistoryItemKey();
@@ -97,8 +105,10 @@ public:
     static String quirkRedirectComingKey();
     static String rawKey();
     static String reasonKey();
+    static String redirectKey();
     static String reloadFromOriginKey();
     static String reloadKey();
+    static String replaceKey();
     WEBCORE_EXPORT static String requestKey();
     static String resourceKey();
     static String resourceRequestKey();
@@ -111,8 +121,13 @@ public:
     static String sourceKey();
     WEBCORE_EXPORT static String streamingMedia();
     static String styleSheetKey();
+    WEBCORE_EXPORT static String successfulSpeculativeWarmupWithRevalidationKey();
+    WEBCORE_EXPORT static String successfulSpeculativeWarmupWithoutRevalidationKey();
     static String svgDocumentKey();
+    WEBCORE_EXPORT static String synchronousMessageFailedKey();
     WEBCORE_EXPORT static String uncacheableStatusCodeKey();
+    static String underMemoryPressureKey();
+    WEBCORE_EXPORT static String unknownEntryRequestKey();
     WEBCORE_EXPORT static String unlikelyToReuseKey();
     WEBCORE_EXPORT static String unsupportedHTTPMethodKey();
     static String unsuspendableDOMObjectKey();
@@ -129,6 +144,8 @@ public:
     WEBCORE_EXPORT static String userKey();
     WEBCORE_EXPORT static String varyingHeaderMismatchKey();
     static String videoKey();
+    WEBCORE_EXPORT static String wastedSpeculativeWarmupWithRevalidationKey();
+    WEBCORE_EXPORT static String wastedSpeculativeWarmupWithoutRevalidationKey();
     WEBCORE_EXPORT static String webViewKey();
     WEBCORE_EXPORT static String zoomedKey();
 
