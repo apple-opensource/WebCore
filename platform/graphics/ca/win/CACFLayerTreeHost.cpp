@@ -26,6 +26,8 @@
 #include "config.h"
 #include "CACFLayerTreeHost.h"
 
+#if USE(CA)
+
 #include "CACFLayerTreeHostClient.h"
 #include "DebugPageOverlays.h"
 #include "DefWndProcWindowClass.h"
@@ -105,6 +107,12 @@ bool CACFLayerTreeHost::acceleratedCompositingAvailable()
     }
 
     RefPtr<CACFLayerTreeHost> host = CACFLayerTreeHost::create();
+
+    if (!host) {
+        available = false;
+        return available;
+    }
+
     host->setWindow(testWindow);
     available = host->createRenderer();
     host->setWindow(0);
@@ -374,3 +382,5 @@ void CACFLayerTreeHost::updateDebugInfoLayer(bool showLayer)
 }
 
 }
+
+#endif

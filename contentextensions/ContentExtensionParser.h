@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ContentExtensionParser_h
-#define ContentExtensionParser_h
+#pragma once
 
 #if ENABLE(CONTENT_EXTENSIONS)
 
@@ -39,10 +38,9 @@ namespace ContentExtensions {
 class ContentExtensionRule;
 
 std::error_code parseRuleList(const String& rules, Vector<ContentExtensionRule>&);
+WEBCORE_EXPORT bool isValidCSSSelector(const String&);
 
 } // namespace ContentExtensions
 } // namespace WebCore
 
 #endif // ENABLE(CONTENT_EXTENSIONS)
-
-#endif // ContentExtensionParser_h

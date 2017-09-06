@@ -23,11 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef WebGLBuffer_h
-#define WebGLBuffer_h
+#pragma once
 
 #include "WebGLSharedObject.h"
-
 #include <wtf/Forward.h>
 
 namespace JSC {
@@ -41,32 +39,32 @@ class WebGLBuffer final : public WebGLSharedObject {
 public:
     virtual ~WebGLBuffer();
 
-    static Ref<WebGLBuffer> create(WebGLRenderingContextBase*);
+    static Ref<WebGLBuffer> create(WebGLRenderingContextBase&);
 
     bool associateBufferData(GC3Dsizeiptr size);
     bool associateBufferData(JSC::ArrayBuffer*);
     bool associateBufferData(JSC::ArrayBufferView*);
     bool associateBufferSubData(GC3Dintptr offset, JSC::ArrayBuffer*);
     bool associateBufferSubData(GC3Dintptr offset, JSC::ArrayBufferView*);
+    bool associateCopyBufferSubData(const WebGLBuffer& readBuffer, GC3Dintptr readOffset, GC3Dintptr writeOffset, GC3Dsizeiptr);
 
     void disassociateBufferData();
 
     GC3Dsizeiptr byteLength() const;
     const JSC::ArrayBuffer* elementArrayBuffer() const { return m_elementArrayBuffer.get(); }
 
-    // Gets the cached max index for the given type. Returns -1 if
-    // none has been set.
-    int getCachedMaxIndex(GC3Denum type);
+    // Gets the cached max index for the given type if one has been set.
+    std::optional<unsigned> getCachedMaxIndex(GC3Denum type);
     // Sets the cached max index for the given type.
-    void setCachedMaxIndex(GC3Denum type, int value);
+    void setCachedMaxIndex(GC3Denum type, unsigned value);
 
     GC3Denum getTarget() const { return m_target; }
-    void setTarget(GC3Denum);
+    void setTarget(GC3Denum, bool forWebGL2);
 
     bool hasEverBeenBound() const { return object() && m_target; }
 
 protected:
-    WebGLBuffer(WebGLRenderingContextBase*);
+    WebGLBuffer(WebGLRenderingContextBase&);
 
     void deleteObjectImpl(GraphicsContext3D*, Platform3DObject) override;
 
@@ -87,11 +85,10 @@ private:
     // that size.
     struct MaxIndexCacheEntry {
         GC3Denum type;
-        int maxIndex;
+        unsigned maxIndex;
     };
     // OpenGL ES 2.0 only has two valid index types (UNSIGNED_BYTE
-    // and UNSIGNED_SHORT), but might as well leave open the
-    // possibility of adding others.
+    // and UNSIGNED_SHORT) plus one extension (UNSIGNED_INT).
     MaxIndexCacheEntry m_maxIndexCache[4];
     unsigned int m_nextAvailableCacheEntry;
 
@@ -105,5 +102,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // WebGLBuffer_h

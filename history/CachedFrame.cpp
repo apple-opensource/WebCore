@@ -32,17 +32,13 @@
 #include "Document.h"
 #include "DocumentLoader.h"
 #include "EventNames.h"
-#include "ExceptionCode.h"
 #include "FrameLoader.h"
 #include "FrameLoaderClient.h"
 #include "FrameView.h"
-#include "HistoryController.h"
-#include "HistoryItem.h"
 #include "Logging.h"
 #include "MainFrame.h"
 #include "Page.h"
 #include "PageCache.h"
-#include "PageTransitionEvent.h"
 #include "SVGDocumentExtensions.h"
 #include "ScriptController.h"
 #include "SerializedScriptValue.h"
@@ -64,7 +60,6 @@ CachedFrameBase::CachedFrameBase(Frame& frame)
     , m_view(frame.view())
     , m_url(frame.document()->url())
     , m_isMainFrame(!frame.tree().parent())
-    , m_isComposited(frame.view()->hasCompositedContent())
 {
 }
 
@@ -98,15 +93,13 @@ void CachedFrameBase::restore()
     // cached page.
     frame.script().updatePlatformScriptObjects();
 
-    if (m_isComposited)
-        frame.view()->restoreBackingStores();
-
     frame.loader().client().didRestoreFromPageCache();
 
     // Reconstruct the FrameTree. And open the child CachedFrames in their respective FrameLoaders.
     for (unsigned i = 0; i < m_childFrames.size(); ++i) {
         frame.tree().appendChild(&m_childFrames[i]->view()->frame());
         m_childFrames[i]->open();
+        ASSERT_WITH_SECURITY_IMPLICATION(m_document == frame.document());
     }
 
 #if PLATFORM(IOS)
@@ -121,14 +114,6 @@ void CachedFrameBase::restore()
         }
     }
 #endif
-
-    // FIXME: update Page Visibility state here.
-    // https://bugs.webkit.org/show_bug.cgi?id=116770
-    m_document->enqueuePageshowEvent(PageshowEventPersisted);
-
-    HistoryItem* historyItem = frame.loader().history().currentItem();
-    if (historyItem && historyItem->stateObject())
-        m_document->enqueuePopstateEvent(historyItem->stateObject());
 
 #if ENABLE(TOUCH_EVENTS) && !PLATFORM(IOS)
     if (m_document->hasTouchEventHandlers())
@@ -150,7 +135,7 @@ CachedFrame::CachedFrame(Frame& frame)
     // Custom scrollbar renderers will get reattached when the document comes out of the page cache
     m_view->detachCustomScrollbars();
 
-    ASSERT(m_document->inPageCache());
+    ASSERT(m_document->pageCacheState() == Document::InPageCache);
 
     // Create the CachedFrames for all Frames in the FrameTree.
     for (Frame* child = frame.tree().firstChild(); child; child = child->tree().nextSibling())
@@ -164,9 +149,6 @@ CachedFrame::CachedFrame(Frame& frame)
     m_document->domWindow()->suspendForDocumentSuspension();
 
     frame.loader().client().savePlatformDataToCachedFrame(this);
-
-    if (m_isComposited && PageCache::singleton().shouldClearBackingStores())
-        frame.view()->clearBackingStores();
 
     // documentWillSuspendForPageCache() can set up a layout timer on the FrameView, so clear timers after that.
     frame.clearTimers();
@@ -220,7 +202,7 @@ void CachedFrame::clear()
     // This means the CachedFrame has been:
     // 1 - Successfully restore()'d by going back/forward.
     // 2 - destroy()'ed because the PageCache is pruning or the WebView was closed.
-    ASSERT(!m_document->inPageCache());
+    ASSERT(m_document->pageCacheState() == Document::NotInPageCache);
     ASSERT(m_view);
     ASSERT(!m_document->frame() || m_document->frame() == &m_view->frame());
 
@@ -241,15 +223,15 @@ void CachedFrame::destroy()
         return;
     
     // Only CachedFrames that are still in the PageCache should be destroyed in this manner
-    ASSERT(m_document->inPageCache());
+    ASSERT(m_document->pageCacheState() == Document::InPageCache);
     ASSERT(m_view);
     ASSERT(m_document->frame() == &m_view->frame());
 
     m_document->domWindow()->willDestroyCachedFrame();
 
     if (!m_isMainFrame) {
-        m_view->frame().detachFromPage();
         m_view->frame().loader().detachViewsAndDocumentLoader();
+        m_view->frame().detachFromPage();
     }
     
     for (int i = m_childFrames.size() - 1; i >= 0; --i)
