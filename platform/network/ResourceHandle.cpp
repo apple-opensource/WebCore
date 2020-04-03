@@ -33,19 +33,20 @@
 #include "ResourceHandleClient.h"
 #include "Timer.h"
 #include <algorithm>
+#include <wtf/CompletionHandler.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
-#include <wtf/text/AtomicStringHash.h>
+#include <wtf/text/AtomStringHash.h>
 #include <wtf/text/CString.h>
 
 namespace WebCore {
 
 static bool shouldForceContentSniffing;
 
-typedef HashMap<AtomicString, ResourceHandle::BuiltinConstructor> BuiltinResourceHandleConstructorMap;
+typedef HashMap<AtomString, ResourceHandle::BuiltinConstructor> BuiltinResourceHandleConstructorMap;
 static BuiltinResourceHandleConstructorMap& builtinResourceHandleConstructorMap()
 {
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     ASSERT(WebThreadIsLockedOrDisabled());
 #else
     ASSERT(isMainThread());
@@ -54,12 +55,12 @@ static BuiltinResourceHandleConstructorMap& builtinResourceHandleConstructorMap(
     return map;
 }
 
-void ResourceHandle::registerBuiltinConstructor(const AtomicString& protocol, ResourceHandle::BuiltinConstructor constructor)
+void ResourceHandle::registerBuiltinConstructor(const AtomString& protocol, ResourceHandle::BuiltinConstructor constructor)
 {
     builtinResourceHandleConstructorMap().add(protocol, constructor);
 }
 
-typedef HashMap<AtomicString, ResourceHandle::BuiltinSynchronousLoader> BuiltinResourceHandleSynchronousLoaderMap;
+typedef HashMap<AtomString, ResourceHandle::BuiltinSynchronousLoader> BuiltinResourceHandleSynchronousLoaderMap;
 static BuiltinResourceHandleSynchronousLoaderMap& builtinResourceHandleSynchronousLoaderMap()
 {
     ASSERT(isMainThread());
@@ -67,7 +68,7 @@ static BuiltinResourceHandleSynchronousLoaderMap& builtinResourceHandleSynchrono
     return map;
 }
 
-void ResourceHandle::registerBuiltinSynchronousLoader(const AtomicString& protocol, ResourceHandle::BuiltinSynchronousLoader loader)
+void ResourceHandle::registerBuiltinSynchronousLoader(const AtomString& protocol, ResourceHandle::BuiltinSynchronousLoader loader)
 {
     builtinResourceHandleSynchronousLoaderMap().add(protocol, loader);
 }
@@ -94,10 +95,10 @@ RefPtr<ResourceHandle> ResourceHandle::create(NetworkingContext* context, const 
     auto newHandle = adoptRef(*new ResourceHandle(context, request, client, defersLoading, shouldContentSniff, shouldContentEncodingSniff));
 
     if (newHandle->d->m_scheduledFailureType != NoFailure)
-        return WTFMove(newHandle);
+        return newHandle;
 
     if (newHandle->start())
-        return WTFMove(newHandle);
+        return newHandle;
 
     return nullptr;
 }
@@ -150,20 +151,20 @@ void ResourceHandle::clearClient()
     d->m_client = nullptr;
 }
 
-void ResourceHandle::didReceiveResponse(ResourceResponse&& response)
+void ResourceHandle::didReceiveResponse(ResourceResponse&& response, CompletionHandler<void()>&& completionHandler)
 {
     if (response.isHTTP09()) {
         auto url = response.url();
-        std::optional<uint16_t> port = url.port();
-        if (port && !isDefaultPortForProtocol(port.value(), url.protocol())) {
+        Optional<uint16_t> port = url.port();
+        if (port && !WTF::isDefaultPortForProtocol(port.value(), url.protocol())) {
             cancel();
             String message = "Cancelled load from '" + url.stringCenterEllipsizedToLength() + "' because it is using HTTP/0.9.";
             d->m_client->didFail(this, { String(), 0, url, message });
-            continueDidReceiveResponse();
+            completionHandler();
             return;
         }
     }
-    client()->didReceiveResponseAsync(this, WTFMove(response));
+    client()->didReceiveResponseAsync(this, WTFMove(response), WTFMove(completionHandler));
 }
 
 #if !USE(SOUP) && !USE(CURL)

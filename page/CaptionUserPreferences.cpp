@@ -40,9 +40,9 @@
 #include "UserContentTypes.h"
 #include "UserStyleSheet.h"
 #include "UserStyleSheetTypes.h"
-#include <heap/HeapInlines.h>
-#include <runtime/JSCellInlines.h>
-#include <runtime/StructureInlines.h>
+#include <JavaScriptCore/HeapInlines.h>
+#include <JavaScriptCore/JSCellInlines.h>
+#include <JavaScriptCore/StructureInlines.h>
 #include <wtf/Language.h>
 
 namespace WebCore {
@@ -314,8 +314,13 @@ int CaptionUserPreferences::textTrackLanguageSelectionScore(TextTrack* track, co
 
 void CaptionUserPreferences::setCaptionsStyleSheetOverride(const String& override)
 {
+    if (override == m_captionsStyleSheetOverride)
+        return;
+
     m_captionsStyleSheetOverride = override;
     updateCaptionStyleSheetOverride();
+    if (!m_timer.isActive())
+        m_timer.startOneShot(0_s);
 }
 
 void CaptionUserPreferences::updateCaptionStyleSheetOverride()

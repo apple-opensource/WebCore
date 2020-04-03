@@ -61,7 +61,7 @@ static inline MatchBasedOnRuleHash computeMatchBasedOnRuleHash(const CSSSelector
 
     if (selector.match() == CSSSelector::Tag) {
         const QualifiedName& tagQualifiedName = selector.tagQName();
-        const AtomicString& selectorNamespace = tagQualifiedName.namespaceURI();
+        const AtomString& selectorNamespace = tagQualifiedName.namespaceURI();
         if (selectorNamespace == starAtom() || selectorNamespace == xhtmlNamespaceURI) {
             if (tagQualifiedName == anyQName())
                 return MatchBasedOnRuleHash::Universal;
@@ -144,13 +144,22 @@ static inline PropertyWhitelistType determinePropertyWhitelistType(const CSSSele
 #endif
         if (component->match() == CSSSelector::PseudoElement && component->pseudoElementType() == CSSSelector::PseudoElementMarker)
             return PropertyWhitelistMarker;
+
+        if (const auto* selectorList = selector->selectorList()) {
+            for (const auto* subSelector = selectorList->first(); subSelector; subSelector = CSSSelectorList::next(subSelector)) {
+                auto whitelistType = determinePropertyWhitelistType(subSelector);
+                if (whitelistType != PropertyWhitelistNone)
+                    return whitelistType;
+            }
+        }
     }
     return PropertyWhitelistNone;
 }
 
-RuleData::RuleData(StyleRule* rule, unsigned selectorIndex, unsigned position)
+RuleData::RuleData(StyleRule* rule, unsigned selectorIndex, unsigned selectorListIndex, unsigned position)
     : m_rule(rule)
     , m_selectorIndex(selectorIndex)
+    , m_selectorListIndex(selectorListIndex)
     , m_position(position)
     , m_matchBasedOnRuleHash(static_cast<unsigned>(computeMatchBasedOnRuleHash(*selector())))
     , m_canMatchPseudoElement(selectorCanMatchPseudoElement(*selector()))
@@ -158,9 +167,6 @@ RuleData::RuleData(StyleRule* rule, unsigned selectorIndex, unsigned position)
     , m_linkMatchType(SelectorChecker::determineLinkMatchType(selector()))
     , m_propertyWhitelistType(determinePropertyWhitelistType(selector()))
     , m_descendantSelectorIdentifierHashes(SelectorFilter::collectHashes(*selector()))
-#if ENABLE(CSS_SELECTOR_JIT) && CSS_SELECTOR_JIT_PROFILING
-    , m_compiledSelectorUseCount(0)
-#endif
 {
     ASSERT(m_position == position);
     ASSERT(m_selectorIndex == selectorIndex);
@@ -170,7 +176,7 @@ RuleSet::RuleSet() = default;
 
 RuleSet::~RuleSet() = default;
 
-void RuleSet::addToRuleSet(const AtomicString& key, AtomRuleMap& map, const RuleData& ruleData)
+void RuleSet::addToRuleSet(const AtomString& key, AtomRuleMap& map, const RuleData& ruleData)
 {
     if (key.isNull())
         return;
@@ -180,7 +186,7 @@ void RuleSet::addToRuleSet(const AtomicString& key, AtomRuleMap& map, const Rule
     rules->append(ruleData);
 }
 
-static unsigned rulesCountForName(const RuleSet::AtomRuleMap& map, const AtomicString& name)
+static unsigned rulesCountForName(const RuleSet::AtomRuleMap& map, const AtomString& name)
 {
     if (const auto* rules = map.get(name))
         return rules->size();
@@ -201,9 +207,9 @@ static bool isHostSelectorMatchingInShadowTree(const CSSSelector& startSelector)
     return leftmostSelector->match() == CSSSelector::PseudoClass && leftmostSelector->pseudoClassType() == CSSSelector::PseudoClassHost;
 }
 
-void RuleSet::addRule(StyleRule* rule, unsigned selectorIndex)
+void RuleSet::addRule(StyleRule* rule, unsigned selectorIndex, unsigned selectorListIndex)
 {
-    RuleData ruleData(rule, selectorIndex, m_ruleCount++);
+    RuleData ruleData(rule, selectorIndex, selectorListIndex, m_ruleCount++);
     m_features.collectFeatures(ruleData);
 
     unsigned classBucketSize = 0;
@@ -244,7 +250,6 @@ void RuleSet::addRule(StyleRule* rule, unsigned selectorIndex)
             break;
         case CSSSelector::PseudoElement:
             switch (selector->pseudoElementType()) {
-            case CSSSelector::PseudoElementUserAgentCustom:
             case CSSSelector::PseudoElementWebKitCustom:
             case CSSSelector::PseudoElementWebKitCustomLegacyPrefixed:
                 customPseudoElementSelector = selector;
@@ -404,8 +409,9 @@ void RuleSet::addRulesFromSheet(StyleSheetContents& sheet, const MediaQueryEvalu
 
 void RuleSet::addStyleRule(StyleRule* rule)
 {
+    unsigned selectorListIndex = 0;
     for (size_t selectorIndex = 0; selectorIndex != notFound; selectorIndex = rule->selectorList().indexOfNextSelectorAfter(selectorIndex))
-        addRule(rule, selectorIndex);
+        addRule(rule, selectorIndex, selectorListIndex++);
 }
 
 bool RuleSet::hasShadowPseudoElementRules() const

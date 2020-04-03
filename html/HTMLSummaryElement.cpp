@@ -32,8 +32,11 @@
 #include "RenderBlockFlow.h"
 #include "ShadowRoot.h"
 #include "SlotAssignment.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLSummaryElement);
 
 using namespace HTMLNames;
 
@@ -44,7 +47,7 @@ private:
         didChangeSlot(SlotAssignment::defaultSlotName(), shadowRoot);
     }
 
-    const AtomicString& slotNameForHostChild(const Node&) const override { return SlotAssignment::defaultSlotName(); }
+    const AtomString& slotNameForHostChild(const Node&) const override { return SlotAssignment::defaultSlotName(); }
 };
 
 Ref<HTMLSummaryElement> HTMLSummaryElement::create(const QualifiedName& tagName, Document& document)

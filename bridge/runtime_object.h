@@ -27,7 +27,7 @@
 #define KJS_RUNTIME_OBJECT_H
 
 #include "BridgeJSC.h"
-#include <runtime/JSGlobalObject.h>
+#include <JavaScriptCore/JSGlobalObject.h>
 
 namespace JSC {
 namespace Bindings {
@@ -35,7 +35,7 @@ namespace Bindings {
 class WEBCORE_EXPORT RuntimeObject : public JSDestructibleObject {
 public:
     typedef JSDestructibleObject Base;
-    static const unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot | OverridesGetPropertyNames | TypeOfShouldCallGetCallData;
+    static const unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot | OverridesGetPropertyNames | OverridesGetCallData;
 
     static RuntimeObject* create(VM& vm, Structure* structure, RefPtr<Instance>&& instance)
     {
@@ -59,7 +59,7 @@ public:
 
     Instance* getInternalInstance() const { return m_instance.get(); }
 
-    static JSObject* throwInvalidAccessError(ExecState*, ThrowScope&);
+    static Exception* throwInvalidAccessError(ExecState*, ThrowScope&);
 
     DECLARE_INFO;
 

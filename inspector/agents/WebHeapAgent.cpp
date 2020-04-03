@@ -26,8 +26,9 @@
 #include "config.h"
 #include "WebHeapAgent.h"
 
+#include "InstrumentingAgents.h"
+#include "WebConsoleAgent.h"
 #include <wtf/RunLoop.h>
-
 
 namespace WebCore {
 
@@ -35,8 +36,8 @@ using namespace Inspector;
 
 struct GarbageCollectionData {
     Inspector::Protocol::Heap::GarbageCollection::Type type;
-    double startTime;
-    double endTime;
+    Seconds startTime;
+    Seconds endTime;
 };
 
 class SendGarbageCollectionEventsTask {
@@ -92,8 +93,9 @@ void SendGarbageCollectionEventsTask::timerFired()
     m_agent.dispatchGarbageCollectionEventsAfterDelay(WTFMove(collectionsToSend));
 }
 
-WebHeapAgent::WebHeapAgent(Inspector::AgentContext& context)
+WebHeapAgent::WebHeapAgent(WebAgentContext& context)
     : InspectorHeapAgent(context)
+    , m_instrumentingAgents(context.instrumentingAgents)
     , m_sendGarbageCollectionEventsTask(std::make_unique<SendGarbageCollectionEventsTask>(*this))
 {
 }
@@ -103,14 +105,25 @@ WebHeapAgent::~WebHeapAgent()
     m_sendGarbageCollectionEventsTask->reset();
 }
 
+void WebHeapAgent::enable(ErrorString& errorString)
+{
+    InspectorHeapAgent::enable(errorString);
+
+    if (auto* consoleAgent = m_instrumentingAgents.webConsoleAgent())
+        consoleAgent->setInspectorHeapAgent(this);
+}
+
 void WebHeapAgent::disable(ErrorString& errorString)
 {
     m_sendGarbageCollectionEventsTask->reset();
 
+    if (auto* consoleAgent = m_instrumentingAgents.webConsoleAgent())
+        consoleAgent->setInspectorHeapAgent(nullptr);
+
     InspectorHeapAgent::disable(errorString);
 }
 
-void WebHeapAgent::dispatchGarbageCollectedEvent(Inspector::Protocol::Heap::GarbageCollection::Type type, double startTime, double endTime)
+void WebHeapAgent::dispatchGarbageCollectedEvent(Inspector::Protocol::Heap::GarbageCollection::Type type, Seconds startTime, Seconds endTime)
 {
     // Dispatch the event asynchronously because this method may be
     // called between collection and sweeping and we don't want to

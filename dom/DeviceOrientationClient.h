@@ -27,7 +27,6 @@
 #pragma once
 
 #include "DeviceClient.h"
-#include "PlatformExportMacros.h"
 #include <wtf/Noncopyable.h>
 
 namespace WebCore {
@@ -46,6 +45,6 @@ public:
     virtual void deviceOrientationControllerDestroyed() = 0;
 };
 
-WEBCORE_EXPORT void provideDeviceOrientationTo(Page*, DeviceOrientationClient*);
+WEBCORE_EXPORT void provideDeviceOrientationTo(Page&, DeviceOrientationClient&);
 
 } // namespace WebCore

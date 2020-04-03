@@ -26,11 +26,10 @@
 #import "config.h"
 #import "ThemeIOS.h"
 
-#import <wtf/NeverDestroyed.h>
-#import <wtf/SoftLinking.h>
+#if PLATFORM(IOS_FAMILY)
 
-SOFT_LINK_FRAMEWORK(UIKit)
-SOFT_LINK(UIKit, UIAccessibilityIsReduceMotionEnabled, BOOL, (void), ())
+#import <pal/ios/UIKitSoftLink.h>
+#import <wtf/NeverDestroyed.h>
 
 using namespace std;
 
@@ -44,7 +43,9 @@ Theme& Theme::singleton()
 
 bool ThemeIOS::userPrefersReducedMotion() const
 {
-    return UIAccessibilityIsReduceMotionEnabled();
+    return PAL::softLink_UIKit_UIAccessibilityIsReduceMotionEnabled();
 }
 
 }
+
+#endif // PLATFORM(IOS_FAMILY)

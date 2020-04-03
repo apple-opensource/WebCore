@@ -50,7 +50,8 @@ bool hitTestFlow(const RenderBlockFlow&, const Layout&, const HitTestRequest&, H
 void collectFlowOverflow(RenderBlockFlow&, const Layout&);
 
 bool isTextRendered(const RenderText&, const Layout&);
-bool containsCaretOffset(const RenderObject&, const Layout&, unsigned);
+enum class OffsetType { CaretOffset, CharacterOffset };
+bool containsOffset(const RenderText&, const Layout&, unsigned, OffsetType);
 unsigned findCaretMinimumOffset(const RenderObject&, const Layout&);
 unsigned findCaretMaximumOffset(const RenderObject&, const Layout&);
 IntRect computeBoundingBox(const RenderObject&, const Layout&);
@@ -64,7 +65,12 @@ Vector<FloatQuad> collectAbsoluteQuadsForRange(const RenderObject&, unsigned sta
 LayoutUnit lineHeightFromFlow(const RenderBlockFlow&);
 LayoutUnit baselineFromFlow(const RenderBlockFlow&);
 
+bool canUseForLineBoxTree(RenderBlockFlow&, const Layout&);
+void generateLineBoxTree(RenderBlockFlow&, const Layout&);
+
 const RenderObject& rendererForPosition(const FlowContents&, unsigned);
+
+void simpleLineLayoutWillBeDeleted(const Layout&);
 
 #if ENABLE(TREE_DEBUGGING)
 void outputLineLayoutForFlow(WTF::TextStream&, const RenderBlockFlow&, const Layout&, int depth);
@@ -111,13 +117,13 @@ inline unsigned findCaretMaximumOffset(const RenderText& renderer, const Layout&
     return last.end;
 }
 
-inline bool containsCaretOffset(const RenderText&, const Layout& layout, unsigned offset)
+inline bool containsOffset(const RenderText&, const Layout& layout, unsigned offset, OffsetType offsetType)
 {
     for (unsigned i = 0; i < layout.runCount(); ++i) {
         auto& run = layout.runAt(i);
         if (offset < run.start)
             return false;
-        if (offset <= run.end)
+        if (offset < run.end || (offsetType == OffsetType::CaretOffset && offset == run.end))
             return true;
     }
     return false;

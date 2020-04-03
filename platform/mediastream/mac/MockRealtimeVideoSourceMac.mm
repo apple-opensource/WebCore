@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,106 +34,45 @@
 #if ENABLE(MEDIA_STREAM)
 #import "GraphicsContextCG.h"
 #import "ImageBuffer.h"
+#import "ImageTransferSessionVT.h"
 #import "MediaConstraints.h"
 #import "MediaSampleAVFObjC.h"
+#import "MockRealtimeMediaSourceCenter.h"
 #import "NotImplemented.h"
 #import "PlatformLayer.h"
 #import "RealtimeMediaSourceSettings.h"
+#import "RealtimeVideoSource.h"
+#import "RealtimeVideoUtilities.h"
 #import <QuartzCore/CALayer.h>
 #import <QuartzCore/CATransaction.h>
 #import <objc/runtime.h>
 
-#import <pal/cf/CoreMediaSoftLink.h>
 #import "CoreVideoSoftLink.h"
+#import <pal/cf/CoreMediaSoftLink.h>
 
 namespace WebCore {
 using namespace PAL;
 
-static const int videoSampleRate = 90000;
-
-CaptureSourceOrError MockRealtimeVideoSource::create(const String& deviceID, const String& name, const MediaConstraints* constraints)
+CaptureSourceOrError MockRealtimeVideoSource::create(String&& deviceID, String&& name, String&& hashSalt, const MediaConstraints* constraints)
 {
-    auto source = adoptRef(*new MockRealtimeVideoSourceMac(deviceID, name));
+#ifndef NDEBUG
+    auto device = MockRealtimeMediaSourceCenter::mockDeviceWithPersistentID(deviceID);
+    ASSERT(device);
+    if (!device)
+        return { };
+#endif
+
+    auto source = adoptRef(*new MockRealtimeVideoSourceMac(WTFMove(deviceID), WTFMove(name), WTFMove(hashSalt)));
     // FIXME: We should report error messages
     if (constraints && source->applyConstraints(*constraints))
         return { };
 
-    return CaptureSourceOrError(WTFMove(source));
+    return CaptureSourceOrError(RealtimeVideoSource::create(WTFMove(source)));
 }
 
-MockRealtimeVideoSourceMac::MockRealtimeVideoSourceMac(const String& deviceID, const String& name)
-    : MockRealtimeVideoSource(deviceID, name)
+MockRealtimeVideoSourceMac::MockRealtimeVideoSourceMac(String&& deviceID, String&& name, String&& hashSalt)
+    : MockRealtimeVideoSource(WTFMove(deviceID), WTFMove(name), WTFMove(hashSalt))
 {
-}
-
-RetainPtr<CMSampleBufferRef> MockRealtimeVideoSourceMac::CMSampleBufferFromPixelBuffer(CVPixelBufferRef pixelBuffer)
-{
-        if (!pixelBuffer)
-        return nullptr;
-
-    CMTime sampleTime = CMTimeMake((elapsedTime() + .1) * videoSampleRate, videoSampleRate);
-    CMSampleTimingInfo timingInfo = { kCMTimeInvalid, sampleTime, sampleTime };
-
-    CMVideoFormatDescriptionRef formatDescription = nullptr;
-    OSStatus status = CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault, (CVImageBufferRef)pixelBuffer, &formatDescription);
-    if (status != noErr) {
-        LOG_ERROR("Failed to initialize CMVideoFormatDescription with error code: %d", status);
-        return nullptr;
-    }
-
-    CMSampleBufferRef sampleBuffer;
-    status = CMSampleBufferCreateReadyWithImageBuffer(kCFAllocatorDefault, (CVImageBufferRef)pixelBuffer, formatDescription, &timingInfo, &sampleBuffer);
-    CFRelease(formatDescription);
-    if (status != noErr) {
-        LOG_ERROR("Failed to initialize CMSampleBuffer with error code: %d", status);
-        return nullptr;
-    }
-
-    return adoptCF(sampleBuffer);
-}
-
-RetainPtr<CVPixelBufferRef> MockRealtimeVideoSourceMac::pixelBufferFromCGImage(CGImageRef image) const
-{
-    static CGColorSpaceRef sRGBColorSpace = sRGBColorSpaceRef();
-
-    CGSize imageSize = CGSizeMake(CGImageGetWidth(image), CGImageGetHeight(image));
-    if (!m_bufferPool) {
-        CVPixelBufferPoolRef bufferPool;
-        CFDictionaryRef sourcePixelBufferOptions = (__bridge CFDictionaryRef) @{
-            (__bridge NSString *)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32ARGB),
-            (__bridge NSString *)kCVPixelBufferWidthKey : @(imageSize.width),
-            (__bridge NSString *)kCVPixelBufferHeightKey : @(imageSize.height),
-#if PLATFORM(IOS)
-            (__bridge NSString *)kCVPixelFormatOpenGLESCompatibility : @(YES),
-#else
-            (__bridge NSString *)kCVPixelBufferOpenGLCompatibilityKey : @(YES),
-#endif
-            (__bridge NSString *)kCVPixelBufferIOSurfacePropertiesKey : @{/*empty dictionary*/}
-        };
-
-        CFDictionaryRef pixelBufferPoolOptions = (__bridge CFDictionaryRef) @{
-           (__bridge NSString *)kCVPixelBufferPoolMinimumBufferCountKey : @(4)
-        };
-
-        CVReturn status = CVPixelBufferPoolCreate(kCFAllocatorDefault, pixelBufferPoolOptions, sourcePixelBufferOptions, &bufferPool);
-        if (status != kCVReturnSuccess)
-            return nullptr;
-
-        m_bufferPool = adoptCF(bufferPool);
-    }
-
-    CVPixelBufferRef pixelBuffer;
-    CVReturn status = CVPixelBufferPoolCreatePixelBuffer(nullptr, m_bufferPool.get(), &pixelBuffer);
-    if (status != kCVReturnSuccess)
-        return nullptr;
-
-    CVPixelBufferLockBaseAddress(pixelBuffer, 0);
-    void* data = CVPixelBufferGetBaseAddress(pixelBuffer);
-    auto context = adoptCF(CGBitmapContextCreate(data, imageSize.width, imageSize.height, 8, CVPixelBufferGetBytesPerRow(pixelBuffer), sRGBColorSpace, (CGBitmapInfo) kCGImageAlphaNoneSkipFirst));
-    CGContextDrawImage(context.get(), CGRectMake(0, 0, CGImageGetWidth(image), CGImageGetHeight(image)), image);
-    CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
-
-    return adoptCF(pixelBuffer);
 }
 
 void MockRealtimeVideoSourceMac::updateSampleBuffer()
@@ -142,46 +81,15 @@ void MockRealtimeVideoSourceMac::updateSampleBuffer()
     if (!imageBuffer)
         return;
 
-    auto pixelBuffer = pixelBufferFromCGImage(imageBuffer->copyImage()->nativeImage().get());
-    auto sampleBuffer = CMSampleBufferFromPixelBuffer(pixelBuffer.get());
+    if (!m_imageTransferSession)
+        m_imageTransferSession = ImageTransferSessionVT::create(preferedPixelBufferFormat());
 
-    // We use m_deviceOrientation to emulate sensor orientation
-    videoSampleAvailable(MediaSampleAVFObjC::create(sampleBuffer.get(), m_deviceOrientation));
-}
-
-bool MockRealtimeVideoSourceMac::applySize(const IntSize& newSize)
-{
-    if (size() != newSize)
-        m_bufferPool = nullptr;
-
-    return MockRealtimeVideoSource::applySize(newSize);
-}
-
-void MockRealtimeVideoSourceMac::orientationChanged(int orientation)
-{
-    // FIXME: Do something with m_deviceOrientation. See bug 169822.
-    switch (orientation) {
-    case 0:
-        m_deviceOrientation = MediaSample::VideoRotation::None;
-        break;
-    case 90:
-        m_deviceOrientation = MediaSample::VideoRotation::Right;
-        break;
-    case -90:
-        m_deviceOrientation = MediaSample::VideoRotation::Left;
-        break;
-    case 180:
-        m_deviceOrientation = MediaSample::VideoRotation::UpsideDown;
-        break;
-    default:
+    auto sampleTime = MediaTime::createWithDouble((elapsedTime() + 100_ms).seconds());
+    auto sampleBuffer = m_imageTransferSession->createMediaSample(imageBuffer->copyImage()->nativeImage().get(), sampleTime, size(), sampleRotation());
+    if (!sampleBuffer)
         return;
-    }
-}
 
-void MockRealtimeVideoSourceMac::monitorOrientation(OrientationNotifier& notifier)
-{
-    notifier.addObserver(*this);
-    orientationChanged(notifier.orientation());
+    dispatchMediaSampleToObservers(*sampleBuffer);
 }
 
 } // namespace WebCore

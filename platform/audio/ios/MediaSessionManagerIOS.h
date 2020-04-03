@@ -23,12 +23,11 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef MediaSessionManageriOS_h
-#define MediaSessionManageriOS_h
+#pragma once
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 
-#include "PlatformMediaSessionManager.h"
+#include "MediaSessionManagerCocoa.h"
 #include <wtf/RetainPtr.h>
 
 OBJC_CLASS WebMediaSessionHelper;
@@ -42,52 +41,38 @@ extern NSString* WebUIApplicationDidEnterBackgroundNotification;
 
 namespace WebCore {
 
-class MediaSessionManageriOS : public PlatformMediaSessionManager {
+class MediaSessionManageriOS : public MediaSessionManagerCocoa {
 public:
     virtual ~MediaSessionManageriOS();
 
     void externalOutputDeviceAvailableDidChange();
     bool hasWirelessTargetsAvailable() override;
+#if HAVE(CELESTIAL)
+    void carPlayServerDied();
+    void updateCarPlayIsConnected(Optional<bool>&&);
+    void activeAudioRouteDidChange(Optional<bool>&&);
+#endif
 
 private:
     friend class PlatformMediaSessionManager;
 
     MediaSessionManageriOS();
 
-    void removeSession(PlatformMediaSession&) override;
-
-    bool sessionWillBeginPlayback(PlatformMediaSession&) override;
-    void sessionWillEndPlayback(PlatformMediaSession&) override;
-    void clientCharacteristicsChanged(PlatformMediaSession&) override;
-
-    void updateNowPlayingInfo();
-    
     void resetRestrictions() override;
 
     void configureWireLessTargetMonitoring() override;
+    void providePresentingApplicationPIDIfNecessary() final;
 
-    bool sessionCanLoadMedia(const PlatformMediaSession&) const override;
+#if !RELEASE_LOG_DISABLED
+    const char* logClassName() const final { return "MediaSessionManageriOS"; }
+#endif
 
-    bool hasActiveNowPlayingSession() const final { return m_nowPlayingActive; }
-    String lastUpdatedNowPlayingTitle() const final { return m_reportedTitle; }
-    double lastUpdatedNowPlayingDuration() const final { return m_reportedDuration; }
-    double lastUpdatedNowPlayingElapsedTime() const final { return m_reportedCurrentTime; }
-    uint64_t lastUpdatedNowPlayingInfoUniqueIdentifier() const final { return m_lastUpdatedNowPlayingInfoUniqueIdentifier; }
-    bool registeredAsNowPlayingApplication() const final { return m_nowPlayingActive; }
-
-    PlatformMediaSession* nowPlayingEligibleSession();
-    
     RetainPtr<WebMediaSessionHelper> m_objcObserver;
-    double m_reportedRate { 0 };
-    double m_reportedDuration { 0 };
-    double m_reportedCurrentTime { 0 };
-    uint64_t m_lastUpdatedNowPlayingInfoUniqueIdentifier { 0 };
-    String m_reportedTitle;
-    bool m_nowPlayingActive { false };
+#if HAVE(CELESTIAL)
+    bool m_havePresentedApplicationPID { false };
+#endif
 };
 
 } // namespace WebCore
 
-#endif // MediaSessionManageriOS_h
-
-#endif // PLATFORM(IOS)
+#endif // PLATFORM(IOS_FAMILY)

@@ -25,11 +25,11 @@
 
 #pragma once
 
-#if ENABLE(SUBTLE_CRYPTO)
+#if ENABLE(WEB_CRYPTO)
 
 #include "ContextDestructionObserver.h"
 #include "CryptoKeyFormat.h"
-#include <heap/Strong.h>
+#include <JavaScriptCore/Strong.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 #include <wtf/Variant.h>
@@ -52,9 +52,9 @@ class DeferredPromise;
 
 enum class CryptoKeyUsage;
 
-class SubtleCrypto : public ContextDestructionObserver, public RefCounted<SubtleCrypto> {
+class SubtleCrypto : public ContextDestructionObserver, public RefCounted<SubtleCrypto>, public CanMakeWeakPtr<SubtleCrypto> {
 public:
-    static Ref<SubtleCrypto> create(ScriptExecutionContext& context) { return adoptRef(*new SubtleCrypto(context)); }
+    static Ref<SubtleCrypto> create(ScriptExecutionContext* context) { return adoptRef(*new SubtleCrypto(context)); }
     ~SubtleCrypto();
 
     using KeyFormat = CryptoKeyFormat;
@@ -76,13 +76,12 @@ public:
     void unwrapKey(JSC::ExecState&, KeyFormat, BufferSource&& wrappedKey, CryptoKey& unwrappingKey, AlgorithmIdentifier&& unwrapAlgorithm, AlgorithmIdentifier&& unwrappedKeyAlgorithm, bool extractable, Vector<CryptoKeyUsage>&&, Ref<DeferredPromise>&&);
 
 private:
-    explicit SubtleCrypto(ScriptExecutionContext&);
+    explicit SubtleCrypto(ScriptExecutionContext*);
 
     inline friend RefPtr<DeferredPromise> getPromise(DeferredPromise*, WeakPtr<SubtleCrypto>);
 
     Ref<WorkQueue> m_workQueue;
     HashMap<DeferredPromise*, Ref<DeferredPromise>> m_pendingPromises;
-    WeakPtrFactory<SubtleCrypto> m_weakPtrFactory;
 };
 
 }

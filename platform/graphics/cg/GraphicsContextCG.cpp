@@ -41,18 +41,13 @@
 #include "ShadowBlur.h"
 #include "SubimageCacheWithTimer.h"
 #include "Timer.h"
-#include "URL.h"
 #include <pal/spi/cg/CoreGraphicsSPI.h>
-#include <wtf/CurrentTime.h>
 #include <wtf/MathExtras.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/URL.h>
 #include <wtf/text/TextStream.h>
 
-#if PLATFORM(WIN)
-#include <WebKitSystemInterface/WebKitSystemInterface.h>
-#endif
-
-#define USE_DRAW_PATH_DIRECT (PLATFORM(IOS) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500))
+#define USE_DRAW_PATH_DIRECT (PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400))
 
 // FIXME: The following using declaration should be in <wtf/HashFunctions.h>.
 using WTF::pairIntHash;
@@ -92,8 +87,6 @@ CGColorSpaceRef sRGBColorSpaceRef()
     return sRGBColorSpace;
 }
 
-#if PLATFORM(WIN) || PLATFORM(IOS) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200)
-// See GraphicsContextCocoa for the pre-10.12 implementation.
 CGColorSpaceRef linearRGBColorSpaceRef()
 {
     static CGColorSpaceRef linearRGBColorSpace;
@@ -108,7 +101,6 @@ CGColorSpaceRef linearRGBColorSpaceRef()
     });
     return linearRGBColorSpace;
 }
-#endif
 
 CGColorSpaceRef extendedSRGBColorSpaceRef()
 {
@@ -116,7 +108,7 @@ CGColorSpaceRef extendedSRGBColorSpaceRef()
     static std::once_flag onceFlag;
     std::call_once(onceFlag, [] {
         CGColorSpaceRef colorSpace = NULL;
-#if PLATFORM(IOS) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200)
+#if PLATFORM(COCOA)
         colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceExtendedSRGB);
 #endif
         // If there is no support for extended sRGB, fall back to sRGB.
@@ -133,7 +125,7 @@ CGColorSpaceRef displayP3ColorSpaceRef()
     static CGColorSpaceRef displayP3ColorSpace;
     static std::once_flag onceFlag;
     std::call_once(onceFlag, [] {
-#if PLATFORM(IOS) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED > 101100)
+#if PLATFORM(IOS_FAMILY) || PLATFORM(MAC)
         displayP3ColorSpace = CGColorSpaceCreateWithName(kCGColorSpaceDisplayP3);
 #else
         displayP3ColorSpace = sRGBColorSpaceRef();
@@ -162,7 +154,7 @@ static InterpolationQuality convertInterpolationQuality(CGInterpolationQuality q
 static CGBlendMode selectCGBlendMode(CompositeOperator compositeOperator, BlendMode blendMode)
 {
     switch (blendMode) {
-    case BlendModeNormal:
+    case BlendMode::Normal:
         switch (compositeOperator) {
         case CompositeClear:
             return kCGBlendModeClear;
@@ -194,39 +186,39 @@ static CGBlendMode selectCGBlendMode(CompositeOperator compositeOperator, BlendM
             return kCGBlendModeDifference;
         }
         break;
-    case BlendModeMultiply:
+    case BlendMode::Multiply:
         return kCGBlendModeMultiply;
-    case BlendModeScreen:
+    case BlendMode::Screen:
         return kCGBlendModeScreen;
-    case BlendModeOverlay:
+    case BlendMode::Overlay:
         return kCGBlendModeOverlay;
-    case BlendModeDarken:
+    case BlendMode::Darken:
         return kCGBlendModeDarken;
-    case BlendModeLighten:
+    case BlendMode::Lighten:
         return kCGBlendModeLighten;
-    case BlendModeColorDodge:
+    case BlendMode::ColorDodge:
         return kCGBlendModeColorDodge;
-    case BlendModeColorBurn:
+    case BlendMode::ColorBurn:
         return kCGBlendModeColorBurn;
-    case BlendModeHardLight:
+    case BlendMode::HardLight:
         return kCGBlendModeHardLight;
-    case BlendModeSoftLight:
+    case BlendMode::SoftLight:
         return kCGBlendModeSoftLight;
-    case BlendModeDifference:
+    case BlendMode::Difference:
         return kCGBlendModeDifference;
-    case BlendModeExclusion:
+    case BlendMode::Exclusion:
         return kCGBlendModeExclusion;
-    case BlendModeHue:
+    case BlendMode::Hue:
         return kCGBlendModeHue;
-    case BlendModeSaturation:
+    case BlendMode::Saturation:
         return kCGBlendModeSaturation;
-    case BlendModeColor:
+    case BlendMode::Color:
         return kCGBlendModeColor;
-    case BlendModeLuminosity:
+    case BlendMode::Luminosity:
         return kCGBlendModeLuminosity;
-    case BlendModePlusDarker:
+    case BlendMode::PlusDarker:
         return kCGBlendModePlusDarker;
-    case BlendModePlusLighter:
+    case BlendMode::PlusLighter:
         return kCGBlendModePlusLighter;
     }
 
@@ -292,7 +284,7 @@ void GraphicsContext::drawNativeImage(const RetainPtr<CGImageRef>& image, const 
     }
 
 #if !LOG_DISABLED
-    double startTime = currentTime();
+    MonotonicTime startTime = MonotonicTime::now();
 #endif
     RetainPtr<CGImageRef> subImage(image);
 
@@ -334,7 +326,7 @@ void GraphicsContext::drawNativeImage(const RetainPtr<CGImageRef>& image, const 
             adjustedDestRect.setHeight(subimageRect.height() / yScale);
 
 #if CACHE_SUBIMAGES
-            subImage = subimageCache().getSubimage(subImage.get(), subimageRect);
+            subImage = SubimageCacheWithTimer::getSubimage(subImage.get(), subimageRect);
 #else
             subImage = adoptCF(CGImageCreateWithImageInRect(subImage.get(), subimageRect));
 #endif
@@ -357,7 +349,7 @@ void GraphicsContext::drawNativeImage(const RetainPtr<CGImageRef>& image, const 
     if (!shouldUseSubimage && currHeight < imageSize.height())
         adjustedDestRect.setHeight(adjustedDestRect.height() * currHeight / imageSize.height());
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     bool wasAntialiased = CGContextGetShouldAntialias(context);
     // Anti-aliasing is on by default on the iPhone. Need to turn it off when drawing images.
     CGContextSetShouldAntialias(context, false);
@@ -390,19 +382,19 @@ void GraphicsContext::drawNativeImage(const RetainPtr<CGImageRef>& image, const 
     
     if (!stateSaver.didSave()) {
         CGContextSetCTM(context, transform);
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
         CGContextSetShouldAntialias(context, wasAntialiased);
 #endif
     }
 
-    LOG_WITH_STREAM(Images, stream << "GraphicsContext::drawNativeImage " << image.get() << " size " << imageSize << " into " << destRect << " took " << 1000.0 * (currentTime() - startTime) << "ms");
+    LOG_WITH_STREAM(Images, stream << "GraphicsContext::drawNativeImage " << image.get() << " size " << imageSize << " into " << destRect << " took " << (MonotonicTime::now() - startTime).milliseconds() << "ms");
 }
 
 static void drawPatternCallback(void* info, CGContextRef context)
 {
     CGImageRef image = (CGImageRef)info;
     CGFloat height = CGImageGetHeight(image);
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     CGContextScaleCTM(context, 1, -1);
     CGContextTranslateCTM(context, 0, -height);
 #endif
@@ -447,7 +439,7 @@ void GraphicsContext::drawPattern(Image& image, const FloatRect& destRect, const
     float h = CGImageGetHeight(tileImage.get());
 
     RetainPtr<CGImageRef> subImage;
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     FloatSize imageSize = image.originalSize();
 #else
     FloatSize imageSize = image.size();
@@ -475,7 +467,7 @@ void GraphicsContext::drawPattern(Image& image, const FloatRect& destRect, const
         matrix = CGAffineTransformConcat(matrix, CGContextGetCTM(context));
         // The top of a partially-decoded image is drawn at the bottom of the tile. Map it to the top.
         matrix = CGAffineTransformTranslate(matrix, 0, image.size().height() - h);
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
         matrix = CGAffineTransformScale(matrix, 1, -1);
         matrix = CGAffineTransformTranslate(matrix, 0, -h);
 #endif
@@ -609,7 +601,7 @@ void GraphicsContext::drawLine(const FloatPoint& point1, const FloatPoint& point
     auto p2 = centeredPoints[1];
 
     if (shouldAntialias()) {
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
         // Force antialiasing on for line patterns as they don't look good with it turned off (<rdar://problem/5459772>).
         CGContextSetShouldAntialias(context, strokeStyle == DottedStroke || strokeStyle == DashedStroke);
 #else
@@ -691,7 +683,7 @@ static inline bool calculateDrawingMode(const GraphicsContextState& state, CGPat
 {
     bool shouldFill = state.fillPattern || state.fillColor.isVisible();
     bool shouldStroke = state.strokePattern || (state.strokeStyle != NoStroke && state.strokeColor.isVisible());
-    bool useEOFill = state.fillRule == RULE_EVENODD;
+    bool useEOFill = state.fillRule == WindRule::EvenOdd;
 
     if (shouldFill) {
         if (shouldStroke) {
@@ -778,7 +770,7 @@ void GraphicsContext::fillPath(const Path& path)
             CGContextAddPath(layerContext, path.platformPath());
             CGContextConcatCTM(layerContext, m_state.fillGradient->gradientSpaceTransform());
 
-            if (fillRule() == RULE_EVENODD)
+            if (fillRule() == WindRule::EvenOdd)
                 CGContextEOClip(layerContext);
             else
                 CGContextClip(layerContext);
@@ -792,7 +784,7 @@ void GraphicsContext::fillPath(const Path& path)
             CGContextStateSaver stateSaver(context);
             CGContextConcatCTM(context, m_state.fillGradient->gradientSpaceTransform());
 
-            if (fillRule() == RULE_EVENODD)
+            if (fillRule() == WindRule::EvenOdd)
                 CGContextEOClip(context);
             else
                 CGContextClip(context);
@@ -806,11 +798,11 @@ void GraphicsContext::fillPath(const Path& path)
     if (m_state.fillPattern)
         applyFillPattern();
 #if USE_DRAW_PATH_DIRECT
-    CGContextDrawPathDirect(context, fillRule() == RULE_EVENODD ? kCGPathEOFill : kCGPathFill, path.platformPath(), nullptr);
+    CGContextDrawPathDirect(context, fillRule() == WindRule::EvenOdd ? kCGPathEOFill : kCGPathFill, path.platformPath(), nullptr);
 #else
     CGContextBeginPath(context);
     CGContextAddPath(context, path.platformPath());
-    if (fillRule() == RULE_EVENODD)
+    if (fillRule() == WindRule::EvenOdd)
         CGContextEOFillPath(context);
     else
         CGContextFillPath(context);
@@ -1038,7 +1030,7 @@ void GraphicsContext::fillRectWithRoundedHole(const FloatRect& rect, const Float
     WindRule oldFillRule = fillRule();
     Color oldFillColor = fillColor();
 
-    setFillRule(RULE_EVENODD);
+    setFillRule(WindRule::EvenOdd);
     setFillColor(color);
 
     // fillRectWithRoundedHole() assumes that the edges of rect are clipped out, so we only care about shadows cast around inside the hole.
@@ -1131,7 +1123,7 @@ void GraphicsContext::clipPath(const Path& path, WindRule clipRule)
         CGContextBeginPath(platformContext());
         CGContextAddPath(platformContext(), path.platformPath());
 
-        if (clipRule == RULE_EVENODD)
+        if (clipRule == WindRule::EvenOdd)
             CGContextEOClip(context);
         else
             CGContextClip(context);
@@ -1145,10 +1137,8 @@ IntRect GraphicsContext::clipBounds() const
     if (paintingDisabled())
         return IntRect();
 
-    if (m_impl) {
-        WTFLogAlways("Getting the clip bounds not yet supported with display lists");
-        return IntRect(-2048, -2048, 4096, 4096); // FIXME: display lists.
-    }
+    if (m_impl)
+        return m_impl->clipBounds();
 
     return enclosingIntRect(CGContextGetClipBoundingBox(platformContext()));
 }
@@ -1188,7 +1178,7 @@ bool GraphicsContext::supportsTransparencyLayers()
 
 static void applyShadowOffsetWorkaroundIfNeeded(const GraphicsContext& context, CGFloat& xOffset, CGFloat& yOffset)
 {
-#if PLATFORM(IOS) || PLATFORM(WIN)
+#if PLATFORM(IOS_FAMILY) || PLATFORM(WIN)
     UNUSED_PARAM(context);
     UNUSED_PARAM(xOffset);
     UNUSED_PARAM(yOffset);
@@ -1500,7 +1490,7 @@ void GraphicsContext::setCTM(const AffineTransform& transform)
         return;
 
     if (m_impl) {
-        WTFLogAlways("GraphicsContext::setCTM() is not compatible with recording contexts.");
+        m_impl->setCTM(transform);
         return;
     }
 
@@ -1514,10 +1504,8 @@ AffineTransform GraphicsContext::getCTM(IncludeDeviceScale includeScale) const
     if (paintingDisabled())
         return AffineTransform();
 
-    if (m_impl) {
-        WTFLogAlways("GraphicsContext::getCTM() is not yet compatible with recording contexts.");
-        return AffineTransform();
-    }
+    if (m_impl)
+        return m_impl->getCTM(includeScale);
 
     // The CTM usually includes the deviceScaleFactor except in WebKit 1 when the
     // content is non-composited, since the scale factor is integrated at a lower
@@ -1533,10 +1521,8 @@ FloatRect GraphicsContext::roundToDevicePixels(const FloatRect& rect, RoundingMo
     if (paintingDisabled())
         return rect;
 
-    if (m_impl) {
-        WTFLogAlways("GraphicsContext::roundToDevicePixels() is not yet compatible with recording contexts.");
-        return rect;
-    }
+    if (m_impl)
+        return m_impl->roundToDevicePixels(rect, roundingMode);
 
     // It is not enough just to round to pixels in device space. The rotation part of the
     // affine transform matrix to device space can mess with this conversion if we have a
@@ -1580,15 +1566,15 @@ FloatRect GraphicsContext::roundToDevicePixels(const FloatRect& rect, RoundingMo
     return FloatRect(roundedOrigin, roundedLowerRight - roundedOrigin);
 }
 
-void GraphicsContext::drawLineForText(const FloatPoint& point, float width, bool printing, bool doubleLines, StrokeStyle strokeStyle)
+void GraphicsContext::drawLineForText(const FloatRect& rect, bool printing, bool doubleLines, StrokeStyle strokeStyle)
 {
     DashArray widths;
-    widths.append(width);
     widths.append(0);
-    drawLinesForText(point, widths, printing, doubleLines, strokeStyle);
+    widths.append(rect.width());
+    drawLinesForText(rect.location(), rect.height(), widths, printing, doubleLines, strokeStyle);
 }
 
-void GraphicsContext::drawLinesForText(const FloatPoint& point, const DashArray& widths, bool printing, bool doubleLines, StrokeStyle strokeStyle)
+void GraphicsContext::drawLinesForText(const FloatPoint& point, float thickness, const DashArray& widths, bool printing, bool doubleLines, StrokeStyle strokeStyle)
 {
     if (paintingDisabled())
         return;
@@ -1597,13 +1583,13 @@ void GraphicsContext::drawLinesForText(const FloatPoint& point, const DashArray&
         return;
 
     if (m_impl) {
-        m_impl->drawLinesForText(point, widths, printing, doubleLines, strokeThickness());
+        m_impl->drawLinesForText(point, thickness, widths, printing, doubleLines);
         return;
     }
 
     Color localStrokeColor(strokeColor());
 
-    FloatRect bounds = computeLineBoundsAndAntialiasingModeForText(point, widths.last(), printing, localStrokeColor);
+    FloatRect bounds = computeLineBoundsAndAntialiasingModeForText(FloatRect(point, FloatSize(widths.last(), thickness)), printing, localStrokeColor);
     bool fillColorIsNotEqualToStrokeColor = fillColor() != localStrokeColor;
     
     Vector<CGRect, 4> dashBounds;
@@ -1653,7 +1639,7 @@ void GraphicsContext::drawLinesForText(const FloatPoint& point, const DashArray&
 
 void GraphicsContext::setURLForRect(const URL& link, const FloatRect& destRect)
 {
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
     if (paintingDisabled())
         return;
 

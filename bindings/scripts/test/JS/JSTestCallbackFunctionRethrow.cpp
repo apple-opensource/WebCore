@@ -27,7 +27,7 @@
 #include "JSDOMExceptionHandling.h"
 #include "JSDOMGlobalObject.h"
 #include "ScriptExecutionContext.h"
-#include <runtime/JSArray.h>
+#include <JavaScriptCore/JSArray.h>
 
 
 namespace WebCore {
@@ -81,7 +81,7 @@ CallbackResult<typename IDLDOMString::ImplementationType> JSTestCallbackFunction
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto returnValue = convert<IDLDOMString>(state, jsResult);
     RETURN_IF_EXCEPTION(throwScope, CallbackResultType::ExceptionThrown);
-    return WTFMove(returnValue);
+    return returnValue;
 }
 
 JSC::JSValue toJS(TestCallbackFunctionRethrow& impl)

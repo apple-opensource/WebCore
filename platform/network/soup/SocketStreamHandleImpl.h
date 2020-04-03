@@ -1,5 +1,6 @@
+
 /*
- * Copyright (C) 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2018 Apple Inc. All rights reserved.
  * Copyright (C) 2009 Google Inc.  All rights reserved.
  * Copyright (C) 2012 Samsung Electronics Ltd. All Rights Reserved.
  *
@@ -38,49 +39,57 @@
 
 #include <pal/SessionID.h>
 #include <wtf/StreamBuffer.h>
+#include <wtf/UniqueArray.h>
 #include <wtf/glib/GRefPtr.h>
+
+typedef struct _GIOStream GIOStream;
+typedef struct _GObject GObject;
 
 namespace WebCore {
 
 class SocketStreamError;
 class SocketStreamHandleClient;
+class StorageSessionProvider;
 
 class SocketStreamHandleImpl final : public SocketStreamHandle {
 public:
-    static Ref<SocketStreamHandleImpl> create(const URL&, SocketStreamHandleClient&, PAL::SessionID, const String&, SourceApplicationAuditToken&&);
-    static Ref<SocketStreamHandle> create(GSocketConnection*, SocketStreamHandleClient&);
-
+    static Ref<SocketStreamHandleImpl> create(const URL&, SocketStreamHandleClient&, PAL::SessionID, const String&, SourceApplicationAuditToken&&, const StorageSessionProvider*);
     virtual ~SocketStreamHandleImpl();
 
-    void platformSend(const char* data, size_t length, Function<void(bool)>&&) final;
+    const URL& url() const { return m_url; }
+
+    void platformSend(const uint8_t* data, size_t length, Function<void(bool)>&&) final;
+    void platformSendHandshake(const uint8_t* data, size_t length, const Optional<CookieRequestHeaderFieldProxy>&, Function<void(bool, bool)>&&) final;
     void platformClose() final;
 private:
-    SocketStreamHandleImpl(const URL&, SocketStreamHandleClient&);
+    SocketStreamHandleImpl(const URL&, SocketStreamHandleClient&, const StorageSessionProvider*);
 
     size_t bufferedAmount() final;
-    std::optional<size_t> platformSendInternal(const char*, size_t);
+    Optional<size_t> platformSendInternal(const uint8_t*, size_t);
     bool sendPendingData();
 
     void beginWaitingForSocketWritability();
     void stopWaitingForSocketWritability();
 
-    static void connectedCallback(GSocketClient*, GAsyncResult*, SocketStreamHandleImpl*);
+    static void connectedCallback(GObject*, GAsyncResult*, SocketStreamHandleImpl*);
     static void readReadyCallback(GInputStream*, GAsyncResult*, SocketStreamHandleImpl*);
     static gboolean writeReadyCallback(GPollableOutputStream*, SocketStreamHandleImpl*);
 
-    void connected(GRefPtr<GSocketConnection>&&);
+    void connected(GRefPtr<GIOStream>&&);
     void readBytes(gssize);
     void didFail(SocketStreamError&&);
     void writeReady();
 
-    GRefPtr<GSocketConnection> m_socketConnection;
+    RefPtr<const StorageSessionProvider> m_storageSessionProvider;
+    
+    GRefPtr<GIOStream> m_stream;
     GRefPtr<GInputStream> m_inputStream;
     GRefPtr<GPollableOutputStream> m_outputStream;
     GRefPtr<GSource> m_writeReadySource;
     GRefPtr<GCancellable> m_cancellable;
-    std::unique_ptr<char[]> m_readBuffer;
+    UniqueArray<char> m_readBuffer;
 
-    StreamBuffer<char, 1024 * 1024> m_buffer;
+    StreamBuffer<uint8_t, 1024 * 1024> m_buffer;
     static const unsigned maxBufferSize = 100 * 1024 * 1024;
 };
 

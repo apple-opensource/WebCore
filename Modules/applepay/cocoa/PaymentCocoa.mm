@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,14 @@
 #import "PaymentMethod.h"
 #import <pal/spi/cocoa/PassKitSPI.h>
 
+#if USE(APPLE_INTERNAL_SDK)
+#import <WebKitAdditions/PaymentCocoaAdditions.mm>
+#else
+namespace WebCore {
+static void finishConverting(PKPayment *, ApplePayPayment&) { }
+}
+#endif
+
 namespace WebCore {
 
 static ApplePayPayment::Token convert(PKPaymentToken *paymentToken)
@@ -64,12 +72,28 @@ static ApplePayPayment convert(unsigned version, PKPayment *payment)
     if (payment.shippingContact)
         result.shippingContact = PaymentContact(payment.shippingContact).toApplePayPaymentContact(version);
 
+    finishConverting(payment, result);
+
     return result;
 }
+    
+Payment::Payment() = default;
+
+Payment::Payment(RetainPtr<PKPayment>&& pkPayment)
+    : m_pkPayment { WTFMove(pkPayment) }
+{
+}
+
+Payment::~Payment() = default;
 
 ApplePayPayment Payment::toApplePayPayment(unsigned version) const
 {
     return convert(version, m_pkPayment.get());
+}
+
+PKPayment *Payment::pkPayment() const
+{
+    return m_pkPayment.get();
 }
 
 }

@@ -44,14 +44,19 @@
 #include "TextTrackCueList.h"
 #include "VTTCue.h"
 #include "VTTRegionList.h"
+#include <wtf/HexNumber.h>
+#include <wtf/IsoMallocInlines.h>
 #include <wtf/MathExtras.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/text/StringConcatenateNumbers.h>
 
 namespace WebCore {
 
-const AtomicString& TextTrackCue::cueShadowPseudoId()
+WTF_MAKE_ISO_ALLOCATED_IMPL(TextTrackCue);
+
+const AtomString& TextTrackCue::cueShadowPseudoId()
 {
-    static NeverDestroyed<const AtomicString> cue("cue", AtomicString::ConstructFromLiteral);
+    static NeverDestroyed<const AtomString> cue("cue", AtomString::ConstructFromLiteral);
     return cue;
 }
 
@@ -218,22 +223,22 @@ bool TextTrackCue::doesExtendCue(const TextTrackCue& cue) const
 
 void TextTrackCue::toJSON(JSON::Object& value) const
 {
-    const char* type = "Generic";
+    ASCIILiteral type = "Generic"_s;
     switch (cueType()) {
     case TextTrackCue::Generic:
-        type = "Generic";
+        type = "Generic"_s;
         break;
     case TextTrackCue::WebVTT:
-        type = "WebVTT";
+        type = "WebVTT"_s;
         break;
     case TextTrackCue::Data:
-        type = "Data";
+        type = "Data"_s;
         break;
     }
 
-    value.setString(ASCIILiteral("type"), ASCIILiteral(type));
-    value.setDouble(ASCIILiteral("startTime"), startTime());
-    value.setDouble(ASCIILiteral("endTime"), endTime());
+    value.setString("type"_s, type);
+    value.setDouble("startTime"_s, startTime());
+    value.setDouble("endTime"_s, endTime());
 }
 
 String TextTrackCue::toJSONString() const
@@ -243,6 +248,14 @@ String TextTrackCue::toJSONString() const
     toJSON(object.get());
 
     return object->toJSONString();
+}
+
+String TextTrackCue::debugString() const
+{
+    String text;
+    if (isRenderable())
+        text = toVTTCue(this)->text();
+    return makeString("0x", hex(reinterpret_cast<uintptr_t>(this)), " id=", id(), " interval=", startTime(), "-->", endTime(), " cue=", text, ')');
 }
 
 } // namespace WebCore

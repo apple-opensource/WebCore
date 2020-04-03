@@ -28,15 +28,14 @@
 
 #include "DOMGCOutputConstraint.h"
 #include "JSDOMBinding.h"
-#include <heap/FastMallocAlignedMemoryAllocator.h>
-#include <heap/HeapInlines.h>
-#include <heap/MarkingConstraint.h>
-#include <heap/SubspaceInlines.h>
-#include <runtime/JSDestructibleObjectHeapCellType.h>
-#include <runtime/JSSegmentedVariableObjectHeapCellType.h>
-#include <runtime/VM.h>
+#include <JavaScriptCore/FastMallocAlignedMemoryAllocator.h>
+#include <JavaScriptCore/HeapInlines.h>
+#include <JavaScriptCore/JSDestructibleObjectHeapCellType.h>
+#include <JavaScriptCore/MarkingConstraint.h>
+#include <JavaScriptCore/SubspaceInlines.h>
+#include <JavaScriptCore/VM.h>
+#include "runtime_method.h"
 #include <wtf/MainThread.h>
-
 
 namespace WebCore {
 using namespace JSC;
@@ -44,8 +43,9 @@ using namespace JSC;
 JSVMClientData::JSVMClientData(VM& vm)
     : m_builtinFunctions(vm)
     , m_builtinNames(&vm)
-    , m_outputConstraintSpace("WebCore Wrapper w/ Output Constraint", vm.heap, vm.destructibleObjectHeapCellType.get(), vm.fastMallocAllocator.get())
-    , m_globalObjectOutputConstraintSpace("WebCore Global Object w/ Output Constraint", vm.heap, vm.segmentedVariableObjectHeapCellType.get(), vm.fastMallocAllocator.get())
+    , m_runtimeMethodSpace ISO_SUBSPACE_INIT(vm.heap, vm.destructibleObjectHeapCellType.get(), RuntimeMethod) // Hash:0xf70c4a85
+    , m_outputConstraintSpace("WebCore Wrapper w/ Output Constraint", vm.heap, vm.destructibleObjectHeapCellType.get(), vm.fastMallocAllocator.get()) // Hash:0x7724c2e4
+    , m_globalObjectOutputConstraintSpace("WebCore Global Object w/ Output Constraint", vm.heap, vm.cellHeapCellType.get(), vm.fastMallocAllocator.get()) // Hash:0x522d6ec9
 {
 }
 

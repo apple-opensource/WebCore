@@ -85,22 +85,40 @@ void DocumentEventQueue::enqueueOrDispatchScrollEvent(Node& target)
 {
     ASSERT(&target.document() == &m_document);
 
+    // Per the W3C CSSOM View Module, scroll events fired at the document should bubble, others should not.
+    enqueueScrollEvent(target, target.isDocumentNode() ? Event::CanBubble::Yes : Event::CanBubble::No, Event::IsCancelable::No);
+}
+
+void DocumentEventQueue::enqueueScrollEvent(EventTarget& target, Event::CanBubble canBubble, Event::IsCancelable cancelable)
+{
     if (m_isClosed)
         return;
 
     if (!m_document.hasListenerType(Document::SCROLL_LISTENER))
         return;
 
-    if (!m_nodesWithQueuedScrollEvents.add(&target).isNewEntry)
+    if (!m_targetsWithQueuedScrollEvents.add(&target).isNewEntry)
         return;
 
-    // Per the W3C CSSOM View Module, scroll events fired at the document should bubble, others should not.
-    bool bubbles = target.isDocumentNode();
-    bool cancelable = false;
-
-    Ref<Event> scrollEvent = Event::create(eventNames().scrollEvent, bubbles, cancelable);
+    Ref<Event> scrollEvent = Event::create(eventNames().scrollEvent, canBubble, cancelable);
     scrollEvent->setTarget(&target);
     enqueueEvent(WTFMove(scrollEvent));
+}
+
+void DocumentEventQueue::enqueueResizeEvent(EventTarget& target, Event::CanBubble canBubble, Event::IsCancelable cancelable)
+{
+    if (m_isClosed)
+        return;
+
+    if (!m_document.hasListenerType(Document::RESIZE_LISTENER))
+        return;
+
+    if (!m_targetsWithQueuedResizeEvents.add(&target).isNewEntry)
+        return;
+
+    Ref<Event> resizeEvent = Event::create(eventNames().resizeEvent, canBubble, cancelable);
+    resizeEvent->setTarget(&target);
+    enqueueEvent(WTFMove(resizeEvent));
 }
 
 bool DocumentEventQueue::cancelEvent(Event& event)
@@ -123,7 +141,8 @@ void DocumentEventQueue::pendingEventTimerFired()
     ASSERT(!m_pendingEventTimer->isActive());
     ASSERT(!m_queuedEvents.isEmpty());
 
-    m_nodesWithQueuedScrollEvents.clear();
+    m_targetsWithQueuedScrollEvents.clear();
+    m_targetsWithQueuedResizeEvents.clear();
 
     // Insert a marker for where we should stop.
     ASSERT(!m_queuedEvents.contains(nullptr));

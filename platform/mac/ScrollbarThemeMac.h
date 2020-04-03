@@ -23,10 +23,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef ScrollbarThemeMac_h
-#define ScrollbarThemeMac_h
+#pragma once
 
 #include "ScrollbarThemeComposite.h"
+
+#if PLATFORM(MAC)
+
+OBJC_CLASS CALayer;
 
 namespace WebCore {
 
@@ -35,11 +38,12 @@ public:
     ScrollbarThemeMac();
     virtual ~ScrollbarThemeMac();
 
-    void preferencesChanged();
+    WEBCORE_EXPORT void preferencesChanged();
 
     void updateEnabledState(Scrollbar&) override;
 
     bool paint(Scrollbar&, GraphicsContext&, const IntRect& damageRect) override;
+    void paintScrollCorner(GraphicsContext&, const IntRect& cornerRect) override;
 
     int scrollbarThickness(ScrollbarControlSize = RegularScrollbar, ScrollbarExpansionState = ScrollbarExpansionState::Expanded) override;
     
@@ -48,8 +52,8 @@ public:
     void usesOverlayScrollbarsChanged() override;
     void updateScrollbarOverlayStyle(Scrollbar&)  override;
 
-    Seconds initialAutoscrollTimerDelay() override;
-    Seconds autoscrollTimerDelay() override;
+    Seconds initialAutoscrollTimerDelay() override { return 500_ms; }
+    Seconds autoscrollTimerDelay() override { return 50_ms; }
 
     ScrollbarButtonsPlacement buttonsPlacement() const override;
 
@@ -99,4 +103,4 @@ protected:
 
 }
 
-#endif
+#endif // PLATFORM(MAC)

@@ -36,7 +36,7 @@ public:
 
     WEBCORE_EXPORT HTMLTextFormControlElement& textFormControlElement() const;
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     bool canScroll() const;
 
     // Returns the line height of the inner renderer.
@@ -74,7 +74,6 @@ private:
     bool isTextControl() const final { return true; }
     void computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const override;
     void computePreferredLogicalWidths() override;
-    void removeLeftoverAnonymousBlock(RenderBlock*) override { }
     bool avoidsFloats() const override { return true; }
     bool canHaveGeneratedChildren() const override { return false; }
     
@@ -99,8 +98,8 @@ public:
     {
         return RenderBlock::baselinePosition(baseline, firstLine, direction, position);
     }
-    std::optional<int> firstLineBaseline() const override { return RenderBlock::firstLineBaseline(); }
-    std::optional<int> inlineBlockBaseline(LineDirectionMode direction) const override { return RenderBlock::inlineBlockBaseline(direction); }
+    Optional<int> firstLineBaseline() const override { return RenderBlock::firstLineBaseline(); }
+    Optional<int> inlineBlockBaseline(LineDirectionMode direction) const override { return RenderBlock::inlineBlockBaseline(direction); }
 
 private:
     bool isFlexibleBoxImpl() const override { return true; }

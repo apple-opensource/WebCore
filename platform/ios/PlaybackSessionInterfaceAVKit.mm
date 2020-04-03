@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,7 +27,7 @@
 #import "config.h"
 #import "PlaybackSessionInterfaceAVKit.h"
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 #if HAVE(AVKIT)
 
 #import "Logging.h"
@@ -43,7 +43,7 @@
 
 #import <pal/cf/CoreMediaSoftLink.h>
 
-SOFT_LINK_FRAMEWORK_OPTIONAL(AVKit)
+SOFTLINK_AVKIT_FRAMEWORK()
 SOFT_LINK_CLASS_OPTIONAL(AVKit, AVValueTiming)
 
 namespace WebCore {
@@ -53,6 +53,7 @@ PlaybackSessionInterfaceAVKit::PlaybackSessionInterfaceAVKit(PlaybackSessionMode
     : m_playerController(adoptNS([[WebAVPlayerController alloc] init]))
     , m_playbackSessionModel(&model)
 {
+    ASSERT(isUIThread());
     model.addClient(*this);
     [m_playerController setPlaybackSessionInterface:this];
     [m_playerController setDelegate:&model];
@@ -71,15 +72,16 @@ PlaybackSessionInterfaceAVKit::PlaybackSessionInterfaceAVKit(PlaybackSessionMode
 
 PlaybackSessionInterfaceAVKit::~PlaybackSessionInterfaceAVKit()
 {
+    ASSERT(isUIThread());
     [m_playerController setPlaybackSessionInterface:nullptr];
     [m_playerController setExternalPlaybackActive:false];
 
     invalidate();
 }
 
-void PlaybackSessionInterfaceAVKit::resetMediaState()
+PlaybackSessionModel* PlaybackSessionInterfaceAVKit::playbackSessionModel() const
 {
-    [m_playerController resetMediaState];
+    return m_playbackSessionModel;
 }
 
 void PlaybackSessionInterfaceAVKit::durationChanged(double duration)
@@ -100,6 +102,9 @@ void PlaybackSessionInterfaceAVKit::durationChanged(double duration)
 
 void PlaybackSessionInterfaceAVKit::currentTimeChanged(double currentTime, double anchorTime)
 {
+    if ([m_playerController isScrubbing])
+        return;
+
     NSTimeInterval anchorTimeStamp = ![m_playerController rate] ? NAN : anchorTime;
     AVValueTiming *timing = [getAVValueTimingClass() valueTimingWithAnchorValue:currentTime
         anchorTimeStamp:anchorTimeStamp rate:0];
@@ -128,6 +133,7 @@ void PlaybackSessionInterfaceAVKit::seekableRangesChanged(const TimeRanges& time
 {
     RetainPtr<NSMutableArray> seekableRanges = adoptNS([[NSMutableArray alloc] init]);
 
+#if !PLATFORM(WATCHOS)
     for (unsigned i = 0; i < timeRanges.length(); i++) {
         double start = timeRanges.start(i).releaseReturnValue();
         double end = timeRanges.end(i).releaseReturnValue();
@@ -135,6 +141,9 @@ void PlaybackSessionInterfaceAVKit::seekableRangesChanged(const TimeRanges& time
         CMTimeRange range = CMTimeRangeMake(CMTimeMakeWithSeconds(start, 1000), CMTimeMakeWithSeconds(end-start, 1000));
         [seekableRanges addObject:[NSValue valueWithCMTimeRange:range]];
     }
+#else
+    UNUSED_PARAM(timeRanges);
+#endif
 
     [m_playerController setSeekableTimeRanges:seekableRanges.get()];
     [m_playerController setSeekableTimeRangesLastModifiedTime: lastModifiedTime];
@@ -197,6 +206,11 @@ void PlaybackSessionInterfaceAVKit::mutedChanged(bool muted)
     [m_playerController setMuted:muted];
 }
 
+void PlaybackSessionInterfaceAVKit::volumeChanged(double volume)
+{
+    [m_playerController volumeChanged:volume];
+}
+
 void PlaybackSessionInterfaceAVKit::invalidate()
 {
     if (!m_playbackSessionModel)
@@ -207,7 +221,14 @@ void PlaybackSessionInterfaceAVKit::invalidate()
     m_playbackSessionModel = nullptr;
 }
 
+void PlaybackSessionInterfaceAVKit::modelDestroyed()
+{
+    ASSERT(isUIThread());
+    invalidate();
+    ASSERT(!m_playbackSessionModel);
+}
+
 }
 
 #endif // HAVE(AVKIT)
-#endif // PLATFORM(IOS)
+#endif // PLATFORM(IOS_FAMILY)

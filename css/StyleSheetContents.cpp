@@ -25,6 +25,7 @@
 #include "CSSParser.h"
 #include "CSSStyleSheet.h"
 #include "CachedCSSStyleSheet.h"
+#include "ContentRuleListResults.h"
 #include "Document.h"
 #include "Frame.h"
 #include "FrameLoader.h"
@@ -294,7 +295,7 @@ void StyleSheetContents::wrapperDeleteRule(unsigned index)
     m_childRules.remove(childVectorIndex);
 }
 
-void StyleSheetContents::parserAddNamespace(const AtomicString& prefix, const AtomicString& uri)
+void StyleSheetContents::parserAddNamespace(const AtomString& prefix, const AtomString& uri)
 {
     ASSERT(!uri.isNull());
     if (prefix.isNull()) {
@@ -307,7 +308,7 @@ void StyleSheetContents::parserAddNamespace(const AtomicString& prefix, const At
     result.iterator->value = uri;
 }
 
-const AtomicString& StyleSheetContents::namespaceURIFromPrefix(const AtomicString& prefix)
+const AtomString& StyleSheetContents::namespaceURIFromPrefix(const AtomString& prefix)
 {
     PrefixNamespaceURIMap::const_iterator it = m_namespaces.find(prefix);
     if (it == m_namespaces.end())
@@ -337,18 +338,7 @@ void StyleSheetContents::parseAuthorStyleSheet(const CachedCSSStyleSheet* cached
         return;
     }
 
-    CSSParser p(parserContext());
-    p.parseSheet(this, sheetText, CSSParser::RuleParsing::Deferred);
-
-    if (m_parserContext.needsSiteSpecificQuirks && isStrictParserMode(m_parserContext.mode)) {
-        // Work around <https://bugs.webkit.org/show_bug.cgi?id=28350>.
-        static NeverDestroyed<const String> mediaWikiKHTMLFixesStyleSheet(MAKE_STATIC_STRING_IMPL("/* KHTML fix stylesheet */\n/* work around the horizontal scrollbars */\n#column-content { margin-left: 0; }\n\n"));
-        // There are two variants of KHTMLFixes.css. One is equal to mediaWikiKHTMLFixesStyleSheet,
-        // while the other lacks the second trailing newline.
-        if (baseURL().string().endsWith("/KHTMLFixes.css") && !sheetText.isNull() && mediaWikiKHTMLFixesStyleSheet.get().startsWith(sheetText)
-            && sheetText.length() >= mediaWikiKHTMLFixesStyleSheet.get().length() - 1)
-            clearRules();
-    }
+    CSSParser(parserContext()).parseSheet(this, sheetText, CSSParser::RuleParsing::Deferred);
 }
 
 bool StyleSheetContents::parseString(const String& sheetText)
@@ -430,31 +420,23 @@ URL StyleSheetContents::completeURL(const String& url) const
     return m_parserContext.completeURL(url);
 }
 
-static bool traverseSubresourcesInRules(const Vector<RefPtr<StyleRuleBase>>& rules, const WTF::Function<bool (const CachedResource&)>& handler)
+static bool traverseRulesInVector(const Vector<RefPtr<StyleRuleBase>>& rules, const WTF::Function<bool (const StyleRuleBase&)>& handler)
 {
     for (auto& rule : rules) {
+        if (handler(*rule))
+            return true;
         switch (rule->type()) {
-        case StyleRuleBase::Style: {
-            auto* properties = downcast<StyleRule>(*rule).propertiesWithoutDeferredParsing();
-            if (properties && properties->traverseSubresources(handler))
-                return true;
-            break;
-        }
-        case StyleRuleBase::FontFace:
-            if (downcast<StyleRuleFontFace>(*rule).properties().traverseSubresources(handler))
-                return true;
-            break;
         case StyleRuleBase::Media: {
             auto* childRules = downcast<StyleRuleMedia>(*rule).childRulesWithoutDeferredParsing();
-            if (childRules && traverseSubresourcesInRules(*childRules, handler))
+            if (childRules && traverseRulesInVector(*childRules, handler))
                 return true;
             break;
         }
         case StyleRuleBase::Import:
             ASSERT_NOT_REACHED();
-#if ASSERT_DISABLED
-            FALLTHROUGH;
-#endif
+            break;
+        case StyleRuleBase::Style:
+        case StyleRuleBase::FontFace:
         case StyleRuleBase::Page:
         case StyleRuleBase::Keyframes:
         case StyleRuleBase::Namespace:
@@ -471,18 +453,48 @@ static bool traverseSubresourcesInRules(const Vector<RefPtr<StyleRuleBase>>& rul
     return false;
 }
 
-bool StyleSheetContents::traverseSubresources(const WTF::Function<bool (const CachedResource&)>& handler) const
+bool StyleSheetContents::traverseRules(const WTF::Function<bool (const StyleRuleBase&)>& handler) const
 {
     for (auto& importRule : m_importRules) {
-        if (auto* cachedResource = importRule->cachedCSSStyleSheet()) {
-            if (handler(*cachedResource))
-                return true;
-        }
+        if (handler(*importRule))
+            return true;
         auto* importedStyleSheet = importRule->styleSheet();
-        if (importedStyleSheet && importedStyleSheet->traverseSubresources(handler))
+        if (importedStyleSheet && importedStyleSheet->traverseRules(handler))
             return true;
     }
-    return traverseSubresourcesInRules(m_childRules, handler);
+    return traverseRulesInVector(m_childRules, handler);
+}
+
+bool StyleSheetContents::traverseSubresources(const WTF::Function<bool (const CachedResource&)>& handler) const
+{
+    return traverseRules([&] (const StyleRuleBase& rule) {
+        switch (rule.type()) {
+        case StyleRuleBase::Style: {
+            auto* properties = downcast<StyleRule>(rule).propertiesWithoutDeferredParsing();
+            return properties && properties->traverseSubresources(handler);
+        }
+        case StyleRuleBase::FontFace:
+            return downcast<StyleRuleFontFace>(rule).properties().traverseSubresources(handler);
+        case StyleRuleBase::Import:
+            if (auto* cachedResource = downcast<StyleRuleImport>(rule).cachedCSSStyleSheet())
+                return handler(*cachedResource);
+            return false;
+        case StyleRuleBase::Media:
+        case StyleRuleBase::Page:
+        case StyleRuleBase::Keyframes:
+        case StyleRuleBase::Namespace:
+        case StyleRuleBase::Unknown:
+        case StyleRuleBase::Charset:
+        case StyleRuleBase::Keyframe:
+        case StyleRuleBase::Supports:
+#if ENABLE(CSS_DEVICE_ADAPTATION)
+        case StyleRuleBase::Viewport:
+#endif
+            return false;
+        };
+        ASSERT_NOT_REACHED();
+        return false;
+    });
 }
 
 bool StyleSheetContents::subresourcesAllowReuse(CachePolicy cachePolicy, FrameLoader& loader) const
@@ -500,8 +512,8 @@ bool StyleSheetContents::subresourcesAllowReuse(CachePolicy cachePolicy, FrameLo
         auto* documentLoader = loader.documentLoader();
         if (page && documentLoader) {
             const auto& request = resource.resourceRequest();
-            auto blockedStatus = page->userContentProvider().processContentExtensionRulesForLoad(request.url(), toResourceType(resource.type()), *documentLoader);
-            if (blockedStatus.blockedLoad || blockedStatus.madeHTTPS)
+            auto results = page->userContentProvider().processContentRuleListsForLoad(request.url(), ContentExtensions::toResourceType(resource.type()), *documentLoader);
+            if (results.summary.blockedLoad || results.summary.madeHTTPS)
                 return true;
         }
 #else

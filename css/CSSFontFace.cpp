@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008, 2011, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -89,12 +89,12 @@ void CSSFontFace::appendSources(CSSFontFace& fontFace, CSSValueList& srcList, Do
 }
 
 CSSFontFace::CSSFontFace(CSSFontSelector* fontSelector, StyleRuleFontFace* cssConnection, FontFace* wrapper, bool isLocalFallback)
-    : m_timeoutTimer(*this, &CSSFontFace::timeoutFired)
-    , m_fontSelector(fontSelector)
+    : m_fontSelector(fontSelector)
     , m_cssConnection(cssConnection)
-    , m_wrapper(wrapper ? wrapper->createWeakPtr() : WeakPtr<FontFace>())
+    , m_wrapper(makeWeakPtr(wrapper))
     , m_isLocalFallback(isLocalFallback)
     , m_mayBePurged(!wrapper)
+    , m_timeoutTimer(*this, &CSSFontFace::timeoutFired)
 {
 }
 
@@ -120,6 +120,11 @@ bool CSSFontFace::setFamilies(CSSValue& family)
     });
 
     return true;
+}
+
+FontFace* CSSFontFace::existingWrapper()
+{
+    return m_wrapper.get();
 }
 
 static FontSelectionRange calculateWeightRange(CSSValue& value)
@@ -202,7 +207,7 @@ static FontSelectionRange calculateItalicRange(CSSValue& value)
 {
     if (value.isFontStyleValue()) {
         auto result = StyleBuilderConverter::convertFontStyleFromValue(value);
-        return { result, result };
+        return { result.valueOr(normalItalicValue()), result.valueOr(normalItalicValue()) };
     }
 
     ASSERT(value.isFontStyleRangeValue());
@@ -473,8 +478,6 @@ bool CSSFontFace::rangesMatchCodePoint(UChar32 character) const
 
 void CSSFontFace::fontLoadEventOccurred()
 {
-    Ref<CSSFontFace> protectedThis(*this);
-
     // If the font is already in the cache, CSSFontFaceSource may report it's loaded before it is added here as a source.
     // Let's not pump the state machine until we've got all our sources. font() and load() are smart enough to act correctly
     // when a source is failed or succeeded before we have asked it to load.
@@ -491,6 +494,8 @@ void CSSFontFace::fontLoadEventOccurred()
 
 void CSSFontFace::timeoutFired()
 {
+    Ref<CSSFontFace> protectedThis(*this);
+    
     switch (status()) {
     case Status::Loading:
         setStatus(Status::TimedOut);
@@ -563,14 +568,14 @@ Ref<FontFace> CSSFontFace::wrapper()
         return *m_wrapper.get();
 
     auto wrapper = FontFace::create(*this);
-    m_wrapper = wrapper->createWeakPtr();
+    m_wrapper = makeWeakPtr(wrapper.get());
     initializeWrapper();
     return wrapper;
 }
 
 void CSSFontFace::setWrapper(FontFace& newWrapper)
 {
-    m_wrapper = newWrapper.createWeakPtr();
+    m_wrapper = makeWeakPtr(newWrapper);
     initializeWrapper();
 }
 
@@ -580,6 +585,20 @@ void CSSFontFace::adoptSource(std::unique_ptr<CSSFontFaceSource>&& source)
 
     // We should never add sources in the middle of loading.
     ASSERT(!m_sourcesPopulated);
+}
+
+AllowUserInstalledFonts CSSFontFace::allowUserInstalledFonts() const
+{
+    if (m_fontSelector && m_fontSelector->document())
+        return m_fontSelector->document()->settings().shouldAllowUserInstalledFonts() ? AllowUserInstalledFonts::Yes : AllowUserInstalledFonts::No;
+    return AllowUserInstalledFonts::Yes;
+}
+
+bool CSSFontFace::shouldAllowDesignSystemUIFonts() const
+{
+    if (m_fontSelector && m_fontSelector->document())
+        return m_fontSelector->document()->settings().shouldAllowDesignSystemUIFonts();
+    return false;
 }
 
 static Settings::FontLoadTimingOverride fontLoadTimingOverride(CSSFontSelector* fontSelector)
@@ -605,6 +624,7 @@ auto CSSFontFace::fontLoadTiming() const -> FontLoadTiming
         case FontLoadingBehavior::Optional:
             return { 0.1_s, 0_s };
         }
+        RELEASE_ASSERT_NOT_REACHED();
     case Settings::FontLoadTimingOverride::Block:
         return { Seconds::infinity(), 0_s };
     case Settings::FontLoadTimingOverride::Swap:
@@ -612,8 +632,7 @@ auto CSSFontFace::fontLoadTiming() const -> FontLoadTiming
     case Settings::FontLoadTimingOverride::Failure:
         return { 0_s, 0_s };
     }
-    ASSERT_NOT_REACHED();
-    return { 3_s, Seconds::infinity() };
+    RELEASE_ASSERT_NOT_REACHED();
 }
 
 void CSSFontFace::setStatus(Status newStatus)
@@ -677,6 +696,8 @@ void CSSFontFace::setStatus(Status newStatus)
 
 void CSSFontFace::fontLoaded(CSSFontFaceSource&)
 {
+    Ref<CSSFontFace> protectedThis(*this);
+    
     fontLoadEventOccurred();
 }
 
@@ -776,6 +797,8 @@ RefPtr<Font> CSSFontFace::font(const FontDescription& fontDescription, bool synt
     if (computeFailureState())
         return nullptr;
 
+    Ref<CSSFontFace> protectedThis(*this);
+    
     // Our status is derived from the first non-failed source. However, this source may
     // return null from font(), which means we need to continue looping through the remainder
     // of the sources to try to find a font to use. These subsequent tries should not affect

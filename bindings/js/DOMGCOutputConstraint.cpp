@@ -27,11 +27,12 @@
 #include "DOMGCOutputConstraint.h"
 
 #include "WebCoreJSClientData.h"
-#include <heap/BlockDirectoryInlines.h>
-#include <heap/HeapInlines.h>
-#include <heap/MarkedBlockInlines.h>
-#include <heap/SubspaceInlines.h>
-#include <runtime/VM.h>
+#include <JavaScriptCore/BlockDirectoryInlines.h>
+#include <JavaScriptCore/HeapInlines.h>
+#include <JavaScriptCore/HeapSnapshotBuilder.h>
+#include <JavaScriptCore/MarkedBlockInlines.h>
+#include <JavaScriptCore/SubspaceInlines.h>
+#include <JavaScriptCore/VM.h>
 
 namespace WebCore {
 
@@ -61,6 +62,7 @@ void DOMGCOutputConstraint::executeImpl(SlotVisitor& visitor)
     m_clientData.forEachOutputConstraintSpace(
         [&] (Subspace& subspace) {
             auto func = [] (SlotVisitor& visitor, HeapCell* heapCell, HeapCell::Kind) {
+                SetRootMarkReasonScope rootScope(visitor, SlotVisitor::RootMarkReason::DOMGCOutput);
                 JSCell* cell = static_cast<JSCell*>(heapCell);
                 cell->methodTable(visitor.vm())->visitOutputConstraints(cell, visitor);
             };

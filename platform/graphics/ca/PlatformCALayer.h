@@ -28,7 +28,6 @@
 #include "FloatRoundedRect.h"
 #include "GraphicsLayer.h"
 #include <QuartzCore/CABase.h>
-#include <wtf/CurrentTime.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TypeCasts.h>
@@ -56,7 +55,7 @@ class WEBCORE_EXPORT PlatformCALayer : public RefCounted<PlatformCALayer> {
     friend class PlatformCALayerWin;
 #endif
 public:
-    static CFTimeInterval currentTimeToMediaTime(double t) { return CACurrentMediaTime() + t - monotonicallyIncreasingTime(); }
+    static CFTimeInterval currentTimeToMediaTime(MonotonicTime t) { return CACurrentMediaTime() + (t - MonotonicTime::now()).seconds(); }
 
     // LayerTypeRootLayer is used on some platforms. It has no backing store, so setNeedsDisplay
     // should not call CACFLayerSetNeedsDisplay, but rather just notify the renderer that it
@@ -76,8 +75,9 @@ public:
         LayerTypeShapeLayer,
         LayerTypeLightSystemBackdropLayer,
         LayerTypeDarkSystemBackdropLayer,
-        LayerTypeScrollingLayer,
-        LayerTypeCustom
+        LayerTypeScrollContainerLayer,
+        LayerTypeEditableImageLayer,
+        LayerTypeCustom,
     };
     enum FilterType { Linear, Nearest, Trilinear };
 
@@ -99,10 +99,12 @@ public:
 
     bool usesTiledBackingLayer() const { return layerType() == LayerTypePageTiledBackingLayer || layerType() == LayerTypeTiledBackingLayer; }
 
+    bool isPageTiledBackingLayer() const { return layerType() == LayerTypePageTiledBackingLayer; }
+
     PlatformCALayerClient* owner() const { return m_owner; }
     virtual void setOwner(PlatformCALayerClient* owner) { m_owner = owner; }
 
-    virtual void animationStarted(const String& key, CFTimeInterval beginTime) = 0;
+    virtual void animationStarted(const String& key, MonotonicTime beginTime) = 0;
     virtual void animationEnded(const String& key) = 0;
 
     virtual void setNeedsDisplay() = 0;
@@ -181,6 +183,7 @@ public:
     virtual bool supportsSubpixelAntialiasedText() const = 0;
     virtual void setSupportsSubpixelAntialiasedText(bool) = 0;
 
+    virtual bool hasContents() const = 0;
     virtual CFTypeRef contents() const = 0;
     virtual void setContents(CFTypeRef) = 0;
 
@@ -232,9 +235,13 @@ public:
 
     virtual WindRule shapeWindRule() const = 0;
     virtual void setShapeWindRule(WindRule) = 0;
+
+    virtual void setEventRegion(const EventRegion&) = 0;
     
     virtual GraphicsLayer::CustomAppearance customAppearance() const = 0;
     virtual void updateCustomAppearance(GraphicsLayer::CustomAppearance) = 0;
+
+    virtual GraphicsLayer::EmbeddedViewID embeddedViewID() const = 0;
 
     virtual TiledBacking* tiledBacking() = 0;
 
@@ -251,7 +258,7 @@ public:
     virtual String layerTreeAsString() const = 0;
 #endif // PLATFORM(WIN)
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     bool isWebLayer();
     void setBoundsOnMainThread(CGRect);
     void setPositionOnMainThread(CGPoint);

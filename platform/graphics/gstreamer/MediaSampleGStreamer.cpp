@@ -21,23 +21,25 @@
 #include "config.h"
 #include "MediaSampleGStreamer.h"
 
-#include "GStreamerUtilities.h"
+#include "GStreamerCommon.h"
+
+#include <algorithm>
 
 #if ENABLE(VIDEO) && USE(GSTREAMER)
 
 namespace WebCore {
 
-MediaSampleGStreamer::MediaSampleGStreamer(GRefPtr<GstSample>&& sample, const FloatSize& presentationSize, const AtomicString& trackId)
+MediaSampleGStreamer::MediaSampleGStreamer(GRefPtr<GstSample>&& sample, const FloatSize& presentationSize, const AtomString& trackId)
     : m_pts(MediaTime::zeroTime())
     , m_dts(MediaTime::zeroTime())
     , m_duration(MediaTime::zeroTime())
     , m_trackId(trackId)
     , m_presentationSize(presentationSize)
 {
+    const GstClockTime minimumDuration = 1000; // 1 us
     ASSERT(sample);
     GstBuffer* buffer = gst_sample_get_buffer(sample.get());
-    if (!buffer)
-        return;
+    RELEASE_ASSERT(buffer);
 
     auto createMediaTime =
         [](GstClockTime time) -> MediaTime {
@@ -48,8 +50,21 @@ MediaSampleGStreamer::MediaSampleGStreamer(GRefPtr<GstSample>&& sample, const Fl
         m_pts = createMediaTime(GST_BUFFER_PTS(buffer));
     if (GST_BUFFER_DTS_IS_VALID(buffer) || GST_BUFFER_PTS_IS_VALID(buffer))
         m_dts = createMediaTime(GST_BUFFER_DTS_OR_PTS(buffer));
-    if (GST_BUFFER_DURATION_IS_VALID(buffer))
-        m_duration = createMediaTime(GST_BUFFER_DURATION(buffer));
+    if (GST_BUFFER_DURATION_IS_VALID(buffer)) {
+        // Sometimes (albeit rarely, so far seen only at the end of a track)
+        // frames have very small durations, so small that may be under the
+        // precision we are working with and be truncated to zero.
+        // SourceBuffer algorithms are not expecting frames with zero-duration,
+        // so let's use something very small instead in those fringe cases.
+        m_duration = createMediaTime(std::max(GST_BUFFER_DURATION(buffer), minimumDuration));
+    } else {
+        // Unfortunately, sometimes samples don't provide a duration. This can never happen in MP4 because of the way
+        // the format is laid out, but it's pretty common in WebM.
+        // The good part is that durations don't matter for playback, just for buffered ranges and coded frame deletion.
+        // We want to pick something small enough to not cause unwanted frame deletion, but big enough to never be
+        // mistaken for a rounding artifact.
+        m_duration = createMediaTime(16666667); // 1/60 seconds
+    }
 
     m_size = gst_buffer_get_size(buffer);
     m_sample = sample;
@@ -61,7 +76,7 @@ MediaSampleGStreamer::MediaSampleGStreamer(GRefPtr<GstSample>&& sample, const Fl
         m_flags = static_cast<MediaSample::SampleFlags>(m_flags | MediaSample::IsNonDisplaying);
 }
 
-MediaSampleGStreamer::MediaSampleGStreamer(const FloatSize& presentationSize, const AtomicString& trackId)
+MediaSampleGStreamer::MediaSampleGStreamer(const FloatSize& presentationSize, const AtomString& trackId)
     : m_pts(MediaTime::zeroTime())
     , m_dts(MediaTime::zeroTime())
     , m_duration(MediaTime::zeroTime())
@@ -70,7 +85,7 @@ MediaSampleGStreamer::MediaSampleGStreamer(const FloatSize& presentationSize, co
 {
 }
 
-Ref<MediaSampleGStreamer> MediaSampleGStreamer::createFakeSample(GstCaps*, MediaTime pts, MediaTime dts, MediaTime duration, const FloatSize& presentationSize, const AtomicString& trackId)
+Ref<MediaSampleGStreamer> MediaSampleGStreamer::createFakeSample(GstCaps*, MediaTime pts, MediaTime dts, MediaTime duration, const FloatSize& presentationSize, const AtomString& trackId)
 {
     MediaSampleGStreamer* gstreamerMediaSample = new MediaSampleGStreamer(presentationSize, trackId);
     gstreamerMediaSample->m_pts = pts;
@@ -121,6 +136,30 @@ Ref<MediaSample> MediaSampleGStreamer::createNonDisplayingCopy() const
     GRefPtr<GstSample> sample = adoptGRef(gst_sample_new(buffer, caps, segment, info));
 
     return adoptRef(*new MediaSampleGStreamer(sample.get(), m_presentationSize, m_trackId));
+}
+
+void MediaSampleGStreamer::dump(PrintStream& out) const
+{
+    out.print("{PTS(", presentationTime(), "), DTS(", decodeTime(), "), duration(", duration(), "), flags(");
+
+    bool anyFlags = false;
+    auto appendFlag = [&out, &anyFlags](const char* flagName) {
+        if (anyFlags)
+            out.print(",");
+        out.print(flagName);
+        anyFlags = true;
+    };
+
+    if (flags() & MediaSample::IsSync)
+        appendFlag("sync");
+    if (flags() & MediaSample::IsNonDisplaying)
+        appendFlag("non-displaying");
+    if (flags() & MediaSample::HasAlpha)
+        appendFlag("has-alpha");
+    if (flags() & ~(MediaSample::IsSync | MediaSample::IsNonDisplaying | MediaSample::HasAlpha))
+        appendFlag("unknown-flag");
+
+    out.print("), trackId(", trackID().string(), "), presentationSize(", presentationSize().width(), "x", presentationSize().height(), ")}");
 }
 
 } // namespace WebCore.

@@ -33,9 +33,6 @@
 #include "FontCascade.h"
 #include <pal/spi/cg/CoreGraphicsSPI.h>
 #include <pal/spi/cocoa/CoreTextSPI.h>
-#if !PLATFORM(IOS)
-#include <ApplicationServices/ApplicationServices.h>
-#endif
 
 namespace WebCore {
 
@@ -49,6 +46,8 @@ static bool shouldFillWithVerticalGlyphs(const UChar* buffer, unsigned bufferLen
     }
     return false;
 }
+
+static const constexpr CGGlyph deletedGlyph = 0xFFFF;
 
 bool GlyphPage::fill(UChar* buffer, unsigned bufferLength)
 {
@@ -65,8 +64,9 @@ bool GlyphPage::fill(UChar* buffer, unsigned bufferLength)
 
     bool haveGlyphs = false;
     for (unsigned i = 0; i < GlyphPage::size; ++i) {
-        if (glyphs[i * glyphStep]) {
-            setGlyphForIndex(i, glyphs[i * glyphStep]);
+        auto theGlyph = glyphs[i * glyphStep];
+        if (theGlyph && theGlyph != deletedGlyph) {
+            setGlyphForIndex(i, theGlyph);
             haveGlyphs = true;
         }
     }

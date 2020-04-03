@@ -32,12 +32,14 @@
 #include "Logging.h"
 #include "TextTrack.h"
 #include "TextTrackCueList.h"
-#include <runtime/JSCInlines.h>
-#include <runtime/Protect.h>
-
+#include <JavaScriptCore/JSCInlines.h>
+#include <JavaScriptCore/Protect.h>
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
 using namespace JSC;
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(DataCue);
 
 DataCue::DataCue(ScriptExecutionContext& context, const MediaTime& start, const MediaTime& end, ArrayBuffer& data, const String& type)
     : TextTrackCue(context, start, end)
@@ -195,7 +197,7 @@ String DataCue::toJSONString() const
     TextTrackCue::toJSON(object.get());
 
     if (!m_type.isEmpty())
-        object->setString(ASCIILiteral("type"), m_type);
+        object->setString("type"_s, m_type);
 
     return object->toJSONString();
 }

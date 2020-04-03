@@ -28,7 +28,7 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
 
-#if USE(IOSURFACE)
+#if HAVE(IOSURFACE)
 #include <pal/spi/cocoa/IOSurfaceSPI.h>
 #endif
 
@@ -249,23 +249,22 @@ bool CGContextGetAllowsFontSubpixelPositioning(CGContextRef);
 bool CGContextDrawsWithCorrectShadowOffsets(CGContextRef);
 CGPatternRef CGPatternCreateWithImage2(CGImageRef, CGAffineTransform, CGPatternTiling);
 
-#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200) || PLATFORM(IOS)
+#if HAVE(IOSURFACE)
+CGContextRef CGIOSurfaceContextCreate(IOSurfaceRef, size_t, size_t, size_t, size_t, CGColorSpaceRef, CGBitmapInfo);
+CGImageRef CGIOSurfaceContextCreateImage(CGContextRef);
+CGImageRef CGIOSurfaceContextCreateImageReference(CGContextRef);
+CGColorSpaceRef CGIOSurfaceContextGetColorSpace(CGContextRef);
+void CGIOSurfaceContextSetDisplayMask(CGContextRef, uint32_t mask);
+#endif // HAVE(IOSURFACE)
+
+#if PLATFORM(COCOA)
 bool CGColorSpaceUsesExtendedRange(CGColorSpaceRef);
 
 typedef struct CGPDFAnnotation *CGPDFAnnotationRef;
 typedef bool (^CGPDFAnnotationDrawCallbackType)(CGContextRef context, CGPDFPageRef page, CGPDFAnnotationRef annotation);
 void CGContextDrawPDFPageWithAnnotations(CGContextRef, CGPDFPageRef, CGPDFAnnotationDrawCallbackType);
 void CGContextDrawPathDirect(CGContextRef, CGPathDrawingMode, CGPathRef, const CGRect* boundingBox);
-#endif
 
-#if USE(IOSURFACE)
-CGContextRef CGIOSurfaceContextCreate(IOSurfaceRef, size_t, size_t, size_t, size_t, CGColorSpaceRef, CGBitmapInfo);
-CGImageRef CGIOSurfaceContextCreateImage(CGContextRef);
-CGImageRef CGIOSurfaceContextCreateImageReference(CGContextRef);
-CGColorSpaceRef CGIOSurfaceContextGetColorSpace(CGContextRef);
-#endif
-
-#if PLATFORM(COCOA)
 CGColorSpaceRef CGContextCopyDeviceColorSpace(CGContextRef);
 CFPropertyListRef CGColorSpaceCopyPropertyList(CGColorSpaceRef);
 CGError CGSNewRegionWithRect(const CGRect*, CGRegionRef*);
@@ -280,15 +279,33 @@ CGRect* CGSNextRect(const CGSRegionEnumeratorObj);
 CGSRegionEnumeratorObj CGSRegionEnumerator(CGRegionRef);
 CGStyleRef CGStyleCreateFocusRingWithColor(const CGFocusRingStyle*, CGColorRef);
 void CGContextSetStyle(CGContextRef, CGStyleRef);
+
+void CGContextDrawConicGradient(CGContextRef, CGGradientRef, CGPoint center, CGFloat angle);
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400) || (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 120000)
+void CGPathAddUnevenCornersRoundedRect(CGMutablePathRef, const CGAffineTransform *, CGRect, const CGSize corners[4]);
 #endif
+
+#if HAVE(CG_FONT_RENDERING_GET_FONT_SMOOTHING_DISABLED)
+bool CGFontRenderingGetFontSmoothingDisabled(void);
+#endif
+
+#endif // PLATFORM(COCOA)
 
 #if PLATFORM(WIN)
 CGFontCache* CGFontCacheGetLocalCache();
 void CGFontCacheSetShouldAutoExpire(CGFontCache*, bool);
 void CGFontCacheSetMaxSize(CGFontCache*, size_t);
-#endif
+void CGContextSetFontSmoothingContrast(CGContextRef, CGFloat);
+void CGContextSetFontSmoothingStyle(CGContextRef, uint32_t);
+uint32_t CGContextGetFontSmoothingStyle(CGContextRef);
+void CGContextSetShouldUsePlatformNativeGlyphs(CGContextRef, bool);
+void CGContextSetFocusRingWithColor(CGContextRef, CGFloat blur, CGColorRef, const CGRect *clipRect, CFDictionaryRef options);
+#endif // PLATFORM(WIN)
 
 #if PLATFORM(MAC)
+void CGSShutdownServerConnections(void);
+
 CGSConnectionID CGSMainConnectionID(void);
 CFArrayRef CGSHWCaptureWindowList(CGSConnectionID, CGSWindowIDList windowList, CGSWindowCount, CGSWindowCaptureOptions);
 CGError CGSSetConnectionProperty(CGSConnectionID, CGSConnectionID ownerCid, CFStringRef key, CFTypeRef value);
@@ -301,6 +318,14 @@ bool ColorSyncProfileIsWideGamut(ColorSyncProfileRef);
 size_t CGDisplayModeGetPixelsWide(CGDisplayModeRef);
 size_t CGDisplayModeGetPixelsHigh(CGDisplayModeRef);
 
-#endif
+#if ENABLE(WEBPROCESS_WINDOWSERVER_BLOCKING)
+CGError CGSSetDenyWindowServerConnections(bool);
+
+typedef int32_t CGSDisplayID;
+CGSDisplayID CGSMainDisplayID(void);
+
+#endif // ENABLE(WEBPROCESS_WINDOWSERVER_BLOCKING)
+
+#endif // PLATFORM(MAC)
 
 WTF_EXTERN_C_END

@@ -90,6 +90,7 @@ namespace WebCore {
 
 static const char versionKey[] = "WebKitDatabaseVersionKey";
 static const char unqualifiedInfoTableName[] = "__WebKitDatabaseInfoTable__";
+const unsigned long long quotaIncreaseSize = 5 * 1024 * 1024;
 
 static const char* fullyQualifiedInfoTableName()
 {
@@ -106,7 +107,7 @@ static const char* fullyQualifiedInfoTableName()
 
 static String formatErrorMessage(const char* message, int sqliteErrorCode, const char* sqliteErrorMessage)
 {
-    return String::format("%s (%d %s)", message, sqliteErrorCode, sqliteErrorMessage);
+    return makeString(message, " (", sqliteErrorCode, ' ', sqliteErrorMessage, ')');
 }
 
 static bool setTextValueInDatabase(SQLiteDatabase& db, const String& query, const String& value)
@@ -155,7 +156,7 @@ static bool retrieveTextResultFromDatabase(SQLiteDatabase& db, const String& que
 }
 
 // FIXME: move all guid-related functions to a DatabaseVersionTracker class.
-static StaticLock guidMutex;
+static Lock guidMutex;
 
 static HashMap<DatabaseGUID, String>& guidToVersionMap()
 {
@@ -191,20 +192,20 @@ static inline DatabaseGUID guidForOriginAndName(const String& origin, const Stri
     }).iterator->value;
 }
 
-Database::Database(DatabaseContext& context, const String& name, const String& expectedVersion, const String& displayName, unsigned estimatedSize)
-    : m_scriptExecutionContext(*context.scriptExecutionContext())
-    , m_contextThreadSecurityOrigin(m_scriptExecutionContext->securityOrigin()->isolatedCopy())
-    , m_databaseThreadSecurityOrigin(m_scriptExecutionContext->securityOrigin()->isolatedCopy())
+Database::Database(DatabaseContext& context, const String& name, const String& expectedVersion, const String& displayName, unsigned long long estimatedSize)
+    : m_document(*context.document())
+    , m_contextThreadSecurityOrigin(m_document->securityOrigin().isolatedCopy())
+    , m_databaseThreadSecurityOrigin(m_document->securityOrigin().isolatedCopy())
     , m_databaseContext(context)
     , m_name((name.isNull() ? emptyString() : name).isolatedCopy())
     , m_expectedVersion(expectedVersion.isolatedCopy())
     , m_displayName(displayName.isolatedCopy())
     , m_estimatedSize(estimatedSize)
-    , m_filename(DatabaseManager::singleton().fullPathForDatabase(*m_scriptExecutionContext->securityOrigin(), m_name))
+    , m_filename(DatabaseManager::singleton().fullPathForDatabase(m_document->securityOrigin(), m_name))
     , m_databaseAuthorizer(DatabaseAuthorizer::create(unqualifiedInfoTableName))
 {
     {
-        std::lock_guard<StaticLock> locker(guidMutex);
+        std::lock_guard<Lock> locker(guidMutex);
 
         m_guid = guidForOriginAndName(securityOrigin().securityOrigin()->toString(), name);
         guidToDatabaseMap().ensure(m_guid, [] {
@@ -225,14 +226,9 @@ DatabaseThread& Database::databaseThread()
 
 Database::~Database()
 {
-    // The reference to the ScriptExecutionContext needs to be cleared on the JavaScript thread.  If we're on that thread already, we can just let the RefPtr's destruction do the dereffing.
-    if (!m_scriptExecutionContext->isContextThread()) {
-        auto passedContext = WTFMove(m_scriptExecutionContext);
-        auto& contextRef = passedContext.get();
-        contextRef.postTask({ScriptExecutionContext::Task::CleanupTask, [passedContext = WTFMove(passedContext), databaseContext = WTFMove(m_databaseContext)] (ScriptExecutionContext& context) {
-            ASSERT_UNUSED(context, &context == passedContext.ptr());
-        }});
-    }
+    // The reference to the Document needs to be cleared on the JavaScript thread. If we're on that thread already, we can just let the RefPtr's destruction do the dereffing.
+    if (!isMainThread())
+        callOnMainThread([document = WTFMove(m_document), databaseContext = WTFMove(m_databaseContext)] { });
 
     // SQLite is "multi-thread safe", but each database handle can only be used
     // on a single thread at a time.
@@ -338,7 +334,7 @@ ExceptionOr<void> Database::performOpenAndVerify(bool shouldSetVersionInNewDatab
 
     const int maxSqliteBusyWaitTime = 30000;
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     {
         // Make sure we wait till the background removal of the empty database files finished before trying to open any database.
         auto locker = holdLock(DatabaseTracker::openDatabaseMutex());
@@ -347,7 +343,7 @@ ExceptionOr<void> Database::performOpenAndVerify(bool shouldSetVersionInNewDatab
 
     SQLiteTransactionInProgressAutoCounter transactionCounter;
 
-    if (!m_sqliteDatabase.open(m_filename, true))
+    if (!m_sqliteDatabase.open(m_filename))
         return Exception { InvalidStateError, formatErrorMessage("unable to open database", m_sqliteDatabase.lastError(), m_sqliteDatabase.lastErrorMsg()) };
     if (!m_sqliteDatabase.turnOnIncrementalAutoVacuum())
         LOG_ERROR("Unable to turn on incremental auto-vacuum (%d %s)", m_sqliteDatabase.lastError(), m_sqliteDatabase.lastErrorMsg());
@@ -356,7 +352,7 @@ ExceptionOr<void> Database::performOpenAndVerify(bool shouldSetVersionInNewDatab
 
     String currentVersion;
     {
-        std::lock_guard<StaticLock> locker(guidMutex);
+        std::lock_guard<Lock> locker(guidMutex);
 
         auto entry = guidToVersionMap().find(m_guid);
         if (entry != guidToVersionMap().end()) {
@@ -445,7 +441,7 @@ void Database::closeDatabase()
     DatabaseTracker::singleton().removeOpenDatabase(*this);
 
     {
-        std::lock_guard<StaticLock> locker(guidMutex);
+        std::lock_guard<Lock> locker(guidMutex);
 
         auto it = guidToDatabaseMap().find(m_guid);
         ASSERT(it != guidToDatabaseMap().end());
@@ -503,14 +499,14 @@ void Database::setExpectedVersion(const String& version)
 
 String Database::getCachedVersion() const
 {
-    std::lock_guard<StaticLock> locker(guidMutex);
+    std::lock_guard<Lock> locker(guidMutex);
 
     return guidToVersionMap().get(m_guid).isolatedCopy();
 }
 
 void Database::setCachedVersion(const String& actualVersion)
 {
-    std::lock_guard<StaticLock> locker(guidMutex);
+    std::lock_guard<Lock> locker(guidMutex);
 
     updateGUIDVersionMap(m_guid, actualVersion);
 }
@@ -617,9 +613,21 @@ String Database::displayName() const
     return m_displayName.isolatedCopy();
 }
 
-unsigned Database::estimatedSize() const
+String Database::expectedVersion() const
+{
+    // Return a deep copy for ref counting thread safety
+    return m_expectedVersion.isolatedCopy();
+}
+
+unsigned long long Database::estimatedSize() const
 {
     return m_estimatedSize;
+}
+
+void Database::setEstimatedSize(unsigned long long estimatedSize)
+{
+    m_estimatedSize = estimatedSize;
+    DatabaseTracker::singleton().setDatabaseDetails(securityOrigin(), m_name, m_displayName, m_estimatedSize);
 }
 
 String Database::fileName() const
@@ -631,7 +639,7 @@ String Database::fileName() const
 DatabaseDetails Database::details() const
 {
     // This code path is only used for database quota delegate calls, so file dates are irrelevant and left uninitialized.
-    return DatabaseDetails(stringIdentifier(), displayName(), estimatedSize(), 0, 0, 0);
+    return DatabaseDetails(stringIdentifier(), displayName(), estimatedSize(), 0, WTF::nullopt, WTF::nullopt);
 }
 
 void Database::disableAuthorizer()
@@ -679,9 +687,8 @@ void Database::runTransaction(RefPtr<SQLTransactionCallback>&& callback, RefPtr<
     LockHolder locker(m_transactionInProgressMutex);
     if (!m_isTransactionQueueEnabled) {
         if (errorCallback) {
-            RefPtr<SQLTransactionErrorCallback> errorCallbackProtector = WTFMove(errorCallback);
-            m_scriptExecutionContext->postTask([errorCallbackProtector](ScriptExecutionContext&) {
-                errorCallbackProtector->handleEvent(SQLError::create(SQLError::UNKNOWN_ERR, "database has been closed"));
+            callOnMainThread([errorCallback = makeRef(*errorCallback)]() {
+                errorCallback->handleEvent(SQLError::create(SQLError::UNKNOWN_ERR, "database has been closed"));
             });
         }
         return;
@@ -694,9 +701,8 @@ void Database::runTransaction(RefPtr<SQLTransactionCallback>&& callback, RefPtr<
 
 void Database::scheduleTransactionCallback(SQLTransaction* transaction)
 {
-    RefPtr<SQLTransaction> transactionProtector(transaction);
-    m_scriptExecutionContext->postTask([transactionProtector] (ScriptExecutionContext&) {
-        transactionProtector->performPendingCallback();
+    callOnMainThread([transaction = makeRefPtr(transaction)] {
+        transaction->performPendingCallback();
     });
 }
 
@@ -744,7 +750,7 @@ void Database::incrementalVacuumIfNeeded()
 
 void Database::logErrorMessage(const String& message)
 {
-    m_scriptExecutionContext->addConsoleMessage(MessageSource::Storage, MessageLevel::Error, message);
+    m_document->addConsoleMessage(MessageSource::Storage, MessageLevel::Error, message);
 }
 
 Vector<String> Database::tableNames()
@@ -766,10 +772,10 @@ Vector<String> Database::tableNames()
 
 SecurityOriginData Database::securityOrigin()
 {
-    if (m_scriptExecutionContext->isContextThread())
-        return SecurityOriginData::fromSecurityOrigin(m_contextThreadSecurityOrigin.get());
+    if (isMainThread())
+        return m_contextThreadSecurityOrigin->data();
     if (databaseThread().getThread() == &Thread::current())
-        return SecurityOriginData::fromSecurityOrigin(m_databaseThreadSecurityOrigin.get());
+        return m_databaseThreadSecurityOrigin->data();
     RELEASE_ASSERT_NOT_REACHED();
 }
 
@@ -785,9 +791,14 @@ void Database::didCommitWriteTransaction()
 
 bool Database::didExceedQuota()
 {
-    ASSERT(databaseContext().scriptExecutionContext()->isContextThread());
+    ASSERT(isMainThread());
     auto& tracker = DatabaseTracker::singleton();
     auto oldQuota = tracker.quota(securityOrigin());
+    if (estimatedSize() <= oldQuota) {
+        // The expected usage provided by the page is now smaller than the actual database size so we bump the expected usage to
+        // oldQuota + 5MB so that the client actually increases the quota.
+        setEstimatedSize(oldQuota + quotaIncreaseSize);
+    }
     databaseContext().databaseExceededQuota(stringIdentifier(), details());
     return tracker.quota(securityOrigin()) > oldQuota;
 }

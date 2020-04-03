@@ -26,6 +26,7 @@
 #include "config.h"
 #include "LoadableClassicScript.h"
 
+#include "FetchIdioms.h"
 #include "ScriptElement.h"
 #include "ScriptSourceCode.h"
 #include "SubresourceIntegrity.h"
@@ -34,7 +35,7 @@
 
 namespace WebCore {
 
-Ref<LoadableClassicScript> LoadableClassicScript::create(const String& nonce, const String& integrityMetadata, const String& crossOriginMode, const String& charset, const AtomicString& initiatorName, bool isInUserAgentShadowTree)
+Ref<LoadableClassicScript> LoadableClassicScript::create(const String& nonce, const String& integrityMetadata, const String& crossOriginMode, const String& charset, const AtomString& initiatorName, bool isInUserAgentShadowTree)
 {
     return adoptRef(*new LoadableClassicScript(nonce, integrityMetadata, crossOriginMode, charset, initiatorName, isInUserAgentShadowTree));
 }
@@ -51,16 +52,16 @@ bool LoadableClassicScript::isLoaded() const
     return m_cachedScript->isLoaded();
 }
 
-std::optional<LoadableScript::Error> LoadableClassicScript::error() const
+Optional<LoadableScript::Error> LoadableClassicScript::error() const
 {
     ASSERT(m_cachedScript);
     if (m_error)
         return m_error;
 
     if (m_cachedScript->errorOccurred())
-        return Error { ErrorType::CachedScript, std::nullopt };
+        return Error { ErrorType::CachedScript, WTF::nullopt };
 
-    return std::nullopt;
+    return WTF::nullopt;
 }
 
 bool LoadableClassicScript::wasCanceled() const
@@ -90,7 +91,18 @@ void LoadableClassicScript::notifyFinished(CachedResource& resource)
             ConsoleMessage {
                 MessageSource::Security,
                 MessageLevel::Error,
-                makeString("Did not load script at '", m_cachedScript->url().stringCenterEllipsizedToLength(), "' because non script MIME types are not allowed when 'X-Content-Type: nosniff' is given.")
+                makeString("Refused to execute ", m_cachedScript->url().stringCenterEllipsizedToLength(), " as script because \"X-Content-Type: nosniff\" was given and its Content-Type is not a script MIME type.")
+            }
+        };
+    }
+
+    if (!m_error && shouldBlockResponseDueToMIMEType(m_cachedScript->response(), m_cachedScript->options().destination)) {
+        m_error = Error {
+            ErrorType::MIMEType,
+            ConsoleMessage {
+                MessageSource::Security,
+                MessageLevel::Error,
+                makeString("Refused to execute ", m_cachedScript->url().stringCenterEllipsizedToLength(), " as script because ", m_cachedScript->response().mimeType(), " is not a script MIME type.")
             }
         };
     }

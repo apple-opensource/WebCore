@@ -26,6 +26,8 @@
 #include "config.h"
 #include "MessagePortChannelRegistry.h"
 
+#include "Logging.h"
+#include <wtf/CompletionHandler.h>
 #include <wtf/MainThread.h>
 
 namespace WebCore {
@@ -155,7 +157,7 @@ void MessagePortChannelRegistry::takeAllMessagesForPort(const MessagePortIdentif
     channel->takeAllMessagesForPort(port, WTFMove(callback));
 }
 
-void MessagePortChannelRegistry::checkRemotePortForActivity(const MessagePortIdentifier& remoteTarget, CompletionHandler<void(MessagePortChannelProvider::HasActivity)>&& callback)
+void MessagePortChannelRegistry::checkRemotePortForActivity(const MessagePortIdentifier& remoteTarget, Function<void(MessagePortChannelProvider::HasActivity)>&& callback)
 {
     ASSERT(isMainThread());
 

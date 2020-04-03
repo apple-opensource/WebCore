@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2013, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,7 +31,7 @@
 #include "SelectorCompiler.h"
 #include <wtf/HashMap.h>
 #include <wtf/Vector.h>
-#include <wtf/text/AtomicStringHash.h>
+#include <wtf/text/AtomStringHash.h>
 
 namespace WebCore {
 
@@ -60,7 +60,7 @@ private:
 
         const CSSSelector* selector;
 #if ENABLE(CSS_SELECTOR_JIT)
-        mutable JSC::MacroAssemblerCodeRef compiledSelectorCodeRef;
+        mutable JSC::MacroAssemblerCodeRef<CSSSelectorPtrTag> compiledSelectorCodeRef;
         mutable SelectorCompilationStatus compilationStatus;
 #if CSS_SELECTOR_JIT_PROFILING
         ~SelectorData()

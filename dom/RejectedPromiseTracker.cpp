@@ -33,19 +33,18 @@
 #include "JSDOMPromise.h"
 #include "PromiseRejectionEvent.h"
 #include "ScriptExecutionContext.h"
-#include <heap/HeapInlines.h>
-#include <heap/Strong.h>
-#include <heap/StrongInlines.h>
-#include <heap/Weak.h>
-#include <heap/WeakInlines.h>
-#include <inspector/ScriptCallStack.h>
-#include <inspector/ScriptCallStackFactory.h>
-#include <runtime/Exception.h>
-#include <runtime/JSCJSValueInlines.h>
-#include <runtime/JSGlobalObject.h>
-#include <runtime/JSPromise.h>
-#include <runtime/WeakGCMapInlines.h>
-
+#include <JavaScriptCore/Exception.h>
+#include <JavaScriptCore/HeapInlines.h>
+#include <JavaScriptCore/JSCJSValueInlines.h>
+#include <JavaScriptCore/JSGlobalObject.h>
+#include <JavaScriptCore/JSPromise.h>
+#include <JavaScriptCore/ScriptCallStack.h>
+#include <JavaScriptCore/ScriptCallStackFactory.h>
+#include <JavaScriptCore/Strong.h>
+#include <JavaScriptCore/StrongInlines.h>
+#include <JavaScriptCore/Weak.h>
+#include <JavaScriptCore/WeakGCMapInlines.h>
+#include <JavaScriptCore/WeakInlines.h>
 
 namespace WebCore {
 using namespace JSC;
@@ -167,7 +166,7 @@ void RejectedPromiseTracker::reportUnhandledRejections(Vector<UnhandledPromise>&
         initializer.promise = &domPromise;
         initializer.reason = promise.result(vm);
 
-        auto event = PromiseRejectionEvent::create(state, eventNames().unhandledrejectionEvent, initializer);
+        auto event = PromiseRejectionEvent::create(eventNames().unhandledrejectionEvent, initializer);
         auto target = m_context.errorEventTarget();
         target->dispatchEvent(event);
 
@@ -189,14 +188,13 @@ void RejectedPromiseTracker::reportRejectionHandled(Ref<DOMPromise>&& rejectedPr
     if (rejectedPromise->isSuspended())
         return;
 
-    auto& state = *rejectedPromise->globalObject()->globalExec();
     auto& promise = *rejectedPromise->promise();
 
     PromiseRejectionEvent::Init initializer;
     initializer.promise = rejectedPromise.ptr();
     initializer.reason = promise.result(vm);
 
-    auto event = PromiseRejectionEvent::create(state, eventNames().rejectionhandledEvent, initializer);
+    auto event = PromiseRejectionEvent::create(eventNames().rejectionhandledEvent, initializer);
     auto target = m_context.errorEventTarget();
     target->dispatchEvent(event);
 }

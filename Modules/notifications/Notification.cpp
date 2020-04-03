@@ -42,8 +42,11 @@
 #include "NotificationController.h"
 #include "NotificationPermissionCallback.h"
 #include "WindowFocusAllowedIndicator.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(Notification);
 
 Ref<Notification> Notification::create(Document& context, const String& title, const Options& options)
 {
@@ -53,7 +56,7 @@ Ref<Notification> Notification::create(Document& context, const String& title, c
 }
 
 Notification::Notification(Document& document, const String& title, const Options& options)
-    : ActiveDOMObject(&document)
+    : ActiveDOMObject(document)
     , m_title(title)
     , m_direction(options.dir)
     , m_lang(options.lang)
@@ -91,7 +94,7 @@ void Notification::show()
     }
     if (client.show(this)) {
         m_state = Showing;
-        setPendingActivity(this);
+        setPendingActivity(*this);
     }
 }
 
@@ -136,39 +139,47 @@ void Notification::finalize()
     if (m_state == Closed)
         return;
     m_state = Closed;
-    unsetPendingActivity(this);
+    unsetPendingActivity(*this);
 }
 
 void Notification::dispatchShowEvent()
 {
-    dispatchEvent(Event::create(eventNames().showEvent, false, false));
+    dispatchEvent(Event::create(eventNames().showEvent, Event::CanBubble::No, Event::IsCancelable::No));
 }
 
 void Notification::dispatchClickEvent()
 {
     WindowFocusAllowedIndicator windowFocusAllowed;
-    dispatchEvent(Event::create(eventNames().clickEvent, false, false));
+    dispatchEvent(Event::create(eventNames().clickEvent, Event::CanBubble::No, Event::IsCancelable::No));
 }
 
 void Notification::dispatchCloseEvent()
 {
-    dispatchEvent(Event::create(eventNames().closeEvent, false, false));
+    dispatchEvent(Event::create(eventNames().closeEvent, Event::CanBubble::No, Event::IsCancelable::No));
     finalize();
 }
 
 void Notification::dispatchErrorEvent()
 {
-    dispatchEvent(Event::create(eventNames().errorEvent, false, false));
+    dispatchEvent(Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::No));
 }
 
 auto Notification::permission(Document& document) -> Permission
 {
+    auto* page = document.page();
+    if (!page)
+        return Permission::Default;
+
     return NotificationController::from(document.page())->client().checkPermission(&document);
 }
 
 void Notification::requestPermission(Document& document, RefPtr<NotificationPermissionCallback>&& callback)
 {
-    NotificationController::from(document.page())->client().requestPermission(&document, WTFMove(callback));
+    auto* page = document.page();
+    if (!page)
+        return;
+
+    NotificationController::from(page)->client().requestPermission(&document, WTFMove(callback));
 }
 
 } // namespace WebCore

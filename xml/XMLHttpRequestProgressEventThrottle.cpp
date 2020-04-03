@@ -37,11 +37,6 @@ const Seconds XMLHttpRequestProgressEventThrottle::minimumProgressEventDispatchi
 
 XMLHttpRequestProgressEventThrottle::XMLHttpRequestProgressEventThrottle(EventTarget* target)
     : m_target(target)
-    , m_hasThrottledProgressEvent(false)
-    , m_lengthComputable(false)
-    , m_loaded(0)
-    , m_total(0)
-    , m_deferEvents(false)
     , m_dispatchDeferredEventsTimer(*this, &XMLHttpRequestProgressEventThrottle::dispatchDeferredEvents)
 {
     ASSERT(target);
@@ -100,7 +95,7 @@ void XMLHttpRequestProgressEventThrottle::dispatchEvent(Event& event)
         m_target->dispatchEvent(event);
 }
 
-void XMLHttpRequestProgressEventThrottle::dispatchProgressEvent(const AtomicString& type)
+void XMLHttpRequestProgressEventThrottle::dispatchProgressEvent(const AtomString& type)
 {
     ASSERT(type == eventNames().loadstartEvent || type == eventNames().progressEvent || type == eventNames().loadEvent || type == eventNames().loadendEvent || type == eventNames().abortEvent || type == eventNames().errorEvent || type == eventNames().timeoutEvent);
 

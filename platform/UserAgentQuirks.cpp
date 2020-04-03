@@ -27,7 +27,7 @@
 #include "UserAgentQuirks.h"
 
 #include "PublicSuffix.h"
-#include "URL.h"
+#include <wtf/URL.h>
 
 namespace WebCore {
 
@@ -36,7 +36,7 @@ namespace WebCore {
 
 static bool isGoogle(const URL& url)
 {
-    String baseDomain = topPrivatelyControlledDomain(url.host());
+    String baseDomain = topPrivatelyControlledDomain(url.host().toString());
 
     // Our Google UA is *very* complicated to get right. Read
     // https://webkit.org/b/142074 carefully before changing. Test that Earth
@@ -60,7 +60,7 @@ static bool isGoogle(const URL& url)
 // that works in Chrome that WebKit cannot handle. Prefer other quirks instead.
 static bool urlRequiresChromeBrowser(const URL& url)
 {
-    String baseDomain = topPrivatelyControlledDomain(url.host());
+    String baseDomain = topPrivatelyControlledDomain(url.host().toString());
 
     // Needed for fonts on many sites to work with WebKit.
     // https://bugs.webkit.org/show_bug.cgi?id=147296
@@ -72,18 +72,47 @@ static bool urlRequiresChromeBrowser(const URL& url)
 
 static bool urlRequiresMacintoshPlatform(const URL& url)
 {
-    String baseDomain = topPrivatelyControlledDomain(url.host());
+    String domain = url.host().toString();
+    String baseDomain = topPrivatelyControlledDomain(domain);
 
-    // At least finance.yahoo.com displays a mobile version with WebKitGTK+'s standard user agent.
+    // At least finance.yahoo.com displays a mobile version with WebKitGTK's standard user agent.
     if (baseDomain == "yahoo.com")
         return true;
 
-    // taobao.com displays a mobile version with WebKitGTK+'s standard user agent.
+    // taobao.com displays a mobile version with WebKitGTK's standard user agent.
     if (baseDomain == "taobao.com")
         return true;
 
-    // web.whatsapp.com completely blocks users with WebKitGTK+'s standard user agent.
+    // web.whatsapp.com completely blocks users with WebKitGTK's standard user agent.
     if (baseDomain == "whatsapp.com")
+        return true;
+
+    // paypal.com completely blocks users with WebKitGTK's standard user agent.
+    if (baseDomain == "paypal.com")
+        return true;
+
+    // chase.com displays a huge "please update your browser" warning with
+    // WebKitGTK's standard user agent.
+    if (baseDomain == "chase.com")
+        return true;
+
+    // Microsoft Outlook Web App forces users with WebKitGTK's standard user
+    // agent to use the light version. Earlier versions even block users from
+    // accessing the calendar.
+    if (domain == "outlook.live.com"
+        || domain == "mail.ntu.edu.tw"
+        || domain == "exchange.tu-berlin.de")
+        return true;
+
+    // Google Docs and Google Drive both show a scary unsupported browser
+    // warning with WebKitGTK's standard user agent.
+    if (domain == "docs.google.com"
+        || domain == "drive.google.com")
+        return true;
+
+    // Bank of America shows an unsupported browser warning with WebKitGTK's
+    // standard user agent.
+    if (baseDomain == "bankofamerica.com")
         return true;
 
     return false;
@@ -91,7 +120,10 @@ static bool urlRequiresMacintoshPlatform(const URL& url)
 
 static bool urlRequiresLinuxDesktopPlatform(const URL& url)
 {
-    return isGoogle(url);
+    // docs.google.com and drive.google.com require the macOS platform quirk.
+    return isGoogle(url)
+        && url.host() != "docs.google.com"
+        && url.host() != "drive.google.com";
 }
 
 UserAgentQuirks UserAgentQuirks::quirksForURL(const URL& url)
@@ -116,17 +148,16 @@ String UserAgentQuirks::stringForQuirk(UserAgentQuirk quirk)
     switch (quirk) {
     case NeedsChromeBrowser:
         // Get versions from https://chromium.googlesource.com/chromium/src.git
-        return ASCIILiteral("Chrome/58.0.3029.81");
+        return "Chrome/75.0.3770.141"_s;
     case NeedsMacintoshPlatform:
-        // Frozen per https://bugs.webkit.org/show_bug.cgi?id=180365
-        return ASCIILiteral("Macintosh; Intel Mac OS X 10_13_4");
+        return "Macintosh; Intel Mac OS X 10_15"_s;
     case NeedsLinuxDesktopPlatform:
-        return ASCIILiteral("X11; Linux x86_64");
+        return "X11; Linux x86_64"_s;
     case NumUserAgentQuirks:
     default:
         ASSERT_NOT_REACHED();
     }
-    return ASCIILiteral("");
+    return ""_s;
 }
 
 }

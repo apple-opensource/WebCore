@@ -43,8 +43,6 @@
 
 namespace WebCore {
 
-const float cSmallCapsFontSizeMultiplier = 0.7f;
-
 static bool g_shouldApplyMacAscentHack;
 
 void Font::setShouldApplyMacAscentHack(bool b)
@@ -89,19 +87,11 @@ void Font::initGDIFont()
     OUTLINETEXTMETRIC metrics;
     GetOutlineTextMetrics(hdc, sizeof(metrics), &metrics);
     TEXTMETRIC& textMetrics = metrics.otmTextMetrics;
-    float ascent, descent, lineGap;
-    // The Open Font Format describes the OS/2 USE_TYPO_METRICS flag as follows:
-    // "If set, it is strongly recommended to use OS/2.sTypoAscender - OS/2.sTypoDescender+ OS/2.sTypoLineGap as a value for default line spacing for this font."
-    const UINT useTypoMetricsMask = 1 << 7;
-    if (metrics.otmfsSelection & useTypoMetricsMask) {
-        ascent = metrics.otmAscent;
-        descent = metrics.otmDescent;
-        lineGap = metrics.otmLineGap;
-    } else {
-        ascent = textMetrics.tmAscent;
-        descent = textMetrics.tmDescent;
-        lineGap = textMetrics.tmExternalLeading;
-    }
+    // FIXME: Needs to take OS/2 USE_TYPO_METRICS flag into account
+    // https://bugs.webkit.org/show_bug.cgi?id=199186
+    float ascent = textMetrics.tmAscent;
+    float descent = textMetrics.tmDescent;
+    float lineGap = textMetrics.tmExternalLeading;
     m_fontMetrics.setAscent(ascent);
     m_fontMetrics.setDescent(descent);
     m_fontMetrics.setLineGap(lineGap);
@@ -110,7 +100,7 @@ void Font::initGDIFont()
     m_maxCharWidth = textMetrics.tmMaxCharWidth;
     float xHeight = ascent * 0.56f; // Best guess for xHeight if no x glyph is present.
     GLYPHMETRICS gm;
-    static const MAT2 identity = { 0, 1,  0, 0,  0, 0,  0, 1 };
+    static const MAT2 identity = { { 0, 1 }, { 0, 0 }, { 0, 0 }, { 0, 1 } };
     DWORD len = GetGlyphOutline(hdc, 'x', GGO_METRICS, &gm, 0, 0, &identity);
     if (len != GDI_ERROR && gm.gmptGlyphOrigin.y > 0)
         xHeight = gm.gmptGlyphOrigin.y;
@@ -177,7 +167,7 @@ FloatRect Font::boundsForGDIGlyph(Glyph glyph) const
     HGDIOBJ oldFont = SelectObject(hdc, m_platformData.hfont());
 
     GLYPHMETRICS gdiMetrics;
-    static const MAT2 identity = { 0, 1,  0, 0,  0, 0,  0, 1 };
+    static const MAT2 identity = { { 0, 1 }, { 0, 0 }, { 0, 0 }, { 0, 1 } };
     GetGlyphOutline(hdc, glyph, GGO_METRICS | GGO_GLYPH_INDEX, &gdiMetrics, 0, 0, &identity);
 
     SelectObject(hdc, oldFont);
@@ -193,7 +183,7 @@ float Font::widthForGDIGlyph(Glyph glyph) const
     HGDIOBJ oldFont = SelectObject(hdc, m_platformData.hfont());
 
     GLYPHMETRICS gdiMetrics;
-    static const MAT2 identity = { 0, 1,  0, 0,  0, 0,  0, 1 };
+    static const MAT2 identity = { { 0, 1 }, { 0, 0 }, { 0, 0 }, { 0, 1 } };
     GetGlyphOutline(hdc, glyph, GGO_METRICS | GGO_GLYPH_INDEX, &gdiMetrics, 0, 0, &identity);
     float result = gdiMetrics.gmCellIncX + m_syntheticBoldOffset;
 

@@ -25,29 +25,47 @@
 
 #pragma once
 
+#if ENABLE(WEB_AUTHN)
+
 #include "BasicCredential.h"
 #include "ExceptionOr.h"
-#include <wtf/Vector.h>
+#include "JSDOMPromiseDeferred.h"
+#include <JavaScriptCore/ArrayBuffer.h>
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
-struct CredentialCreationOptions;
-struct CredentialRequestOptions;
+class AuthenticatorResponse;
+class Document;
+
+struct PublicKeyCredentialData;
 
 class PublicKeyCredential final : public BasicCredential {
 public:
-    static Ref<PublicKeyCredential> create(const String& id)
-    {
-        return adoptRef(*new PublicKeyCredential(id));
-    }
+    struct AuthenticationExtensionsClientOutputs {
+        Optional<bool> appid;
+    };
 
-    static Vector<Ref<BasicCredential>> collectFromCredentialStore(CredentialRequestOptions&&, bool);
-    static ExceptionOr<RefPtr<BasicCredential>> discoverFromExternalSource(const CredentialRequestOptions&, bool);
-    static RefPtr<BasicCredential> store(RefPtr<BasicCredential>&&, bool);
-    static ExceptionOr<RefPtr<BasicCredential>> create(const CredentialCreationOptions&, bool);
+    static RefPtr<PublicKeyCredential> tryCreate(const PublicKeyCredentialData&);
+
+    ArrayBuffer* rawId() const { return m_rawId.ptr(); }
+    AuthenticatorResponse* response() const { return m_response.ptr(); }
+    AuthenticationExtensionsClientOutputs getClientExtensionResults() const;
+
+    static void isUserVerifyingPlatformAuthenticatorAvailable(Document&, DOMPromiseDeferred<IDLBoolean>&&);
 
 private:
-    PublicKeyCredential(const String&);
+    PublicKeyCredential(Ref<ArrayBuffer>&& id, Ref<AuthenticatorResponse>&&, AuthenticationExtensionsClientOutputs&&);
+
+    Type credentialType() const final { return Type::PublicKey; }
+
+    Ref<ArrayBuffer> m_rawId;
+    Ref<AuthenticatorResponse> m_response;
+    AuthenticationExtensionsClientOutputs m_extensions;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BASIC_CREDENTIAL(PublicKeyCredential, BasicCredential::Type::PublicKey)
+
+#endif // ENABLE(WEB_AUTHN)

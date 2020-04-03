@@ -92,11 +92,13 @@ public:
 
     float currentGlobalAlpha() const;
 
+    D2D1_STROKE_STYLE_PROPERTIES strokeStyleProperties() const;
+
 private:
     void recomputeStrokeStyle();
 
     COMPtr<ID2D1RenderTarget> m_renderTarget;
-    HashMap<RGBA32, COMPtr<ID2D1SolidColorBrush>> m_solidColoredBrushCache;
+    HashMap<uint32_t, COMPtr<ID2D1SolidColorBrush>> m_solidColoredBrushCache;
     COMPtr<ID2D1SolidColorBrush> m_whiteBrush;
     COMPtr<ID2D1SolidColorBrush> m_zeroBrush;
     COMPtr<ID2D1StrokeStyle> m_d2dStrokeStyle;
@@ -124,7 +126,7 @@ private:
     StrokeStyle m_strokeStyle { SolidStroke };
     DashArray m_dashes;
 
-    float m_miterLimit { 1.0f };
+    float m_miterLimit { 10.0f };
     float m_dashOffset { 0 };
     float m_patternWidth { 1.0f };
     float m_patternOffset { 0 };

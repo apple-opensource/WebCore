@@ -49,33 +49,33 @@ static JSObject* getCustomElementCallback(ExecState& state, JSObject& prototype,
     RETURN_IF_EXCEPTION(scope, nullptr);
     if (callback.isUndefined())
         return nullptr;
-    if (!callback.isFunction()) {
-        throwTypeError(&state, scope, ASCIILiteral("A custom element callback must be a function"));
+    if (!callback.isFunction(vm)) {
+        throwTypeError(&state, scope, "A custom element callback must be a function"_s);
         return nullptr;
     }
     return callback.getObject();
 }
 
-static bool validateCustomElementNameAndThrowIfNeeded(ExecState& state, const AtomicString& name)
+static bool validateCustomElementNameAndThrowIfNeeded(ExecState& state, const AtomString& name)
 {
     auto scope = DECLARE_THROW_SCOPE(state.vm());
     switch (Document::validateCustomElementName(name)) {
     case CustomElementNameValidationStatus::Valid:
         return true;
     case CustomElementNameValidationStatus::FirstCharacterIsNotLowercaseASCIILetter:
-        throwDOMSyntaxError(state, scope, ASCIILiteral("Custom element name must have a lowercase ASCII letter as its first character"));
+        throwDOMSyntaxError(state, scope, "Custom element name must have a lowercase ASCII letter as its first character"_s);
         return false;
     case CustomElementNameValidationStatus::ContainsUppercaseASCIILetter:
-        throwDOMSyntaxError(state, scope, ASCIILiteral("Custom element name cannot contain an uppercase ASCII letter"));
+        throwDOMSyntaxError(state, scope, "Custom element name cannot contain an uppercase ASCII letter"_s);
         return false;
     case CustomElementNameValidationStatus::ContainsNoHyphen:
-        throwDOMSyntaxError(state, scope, ASCIILiteral("Custom element name must contain a hyphen"));
+        throwDOMSyntaxError(state, scope, "Custom element name must contain a hyphen"_s);
         return false;
     case CustomElementNameValidationStatus::ContainsDisallowedCharacter:
-        throwDOMSyntaxError(state, scope, ASCIILiteral("Custom element name contains a character that is not allowed"));
+        throwDOMSyntaxError(state, scope, "Custom element name contains a character that is not allowed"_s);
         return false;
     case CustomElementNameValidationStatus::ConflictsWithStandardElementName:
-        throwDOMSyntaxError(state, scope, ASCIILiteral("Custom element name cannot be same as one of the standard elements"));
+        throwDOMSyntaxError(state, scope, "Custom element name cannot be same as one of the standard elements"_s);
         return false;
     }
     ASSERT_NOT_REACHED();
@@ -91,12 +91,12 @@ JSValue JSCustomElementRegistry::define(ExecState& state)
     if (UNLIKELY(state.argumentCount() < 2))
         return throwException(&state, scope, createNotEnoughArgumentsError(&state));
 
-    AtomicString localName(state.uncheckedArgument(0).toString(&state)->toAtomicString(&state));
+    AtomString localName(state.uncheckedArgument(0).toString(&state)->toAtomString(&state));
     RETURN_IF_EXCEPTION(scope, JSValue());
 
     JSValue constructorValue = state.uncheckedArgument(1);
-    if (!constructorValue.isConstructor())
-        return throwTypeError(&state, scope, ASCIILiteral("The second argument must be a constructor"));
+    if (!constructorValue.isConstructor(vm))
+        return throwTypeError(&state, scope, "The second argument must be a constructor"_s);
     JSObject* constructor = constructorValue.getObject();
 
     if (!validateCustomElementNameAndThrowIfNeeded(state, localName))
@@ -105,25 +105,25 @@ JSValue JSCustomElementRegistry::define(ExecState& state)
     CustomElementRegistry& registry = wrapped();
 
     if (registry.elementDefinitionIsRunning()) {
-        throwNotSupportedError(state, scope, ASCIILiteral("Cannot define a custom element while defining another custom element"));
+        throwNotSupportedError(state, scope, "Cannot define a custom element while defining another custom element"_s);
         return jsUndefined();
     }
     SetForScope<bool> change(registry.elementDefinitionIsRunning(), true);
 
     if (registry.findInterface(localName)) {
-        throwNotSupportedError(state, scope, ASCIILiteral("Cannot define multiple custom elements with the same tag name"));
+        throwNotSupportedError(state, scope, "Cannot define multiple custom elements with the same tag name"_s);
         return jsUndefined();
     }
 
     if (registry.containsConstructor(constructor)) {
-        throwNotSupportedError(state, scope, ASCIILiteral("Cannot define multiple custom elements with the same class"));
+        throwNotSupportedError(state, scope, "Cannot define multiple custom elements with the same class"_s);
         return jsUndefined();
     }
 
     JSValue prototypeValue = constructor->get(&state, vm.propertyNames->prototype);
     RETURN_IF_EXCEPTION(scope, JSValue());
     if (!prototypeValue.isObject())
-        return throwTypeError(&state, scope, ASCIILiteral("Custom element constructor's prototype must be an object"));
+        return throwTypeError(&state, scope, "Custom element constructor's prototype must be an object"_s);
     JSObject& prototypeObject = *asObject(prototypeValue);
 
     QualifiedName name(nullAtom(), localName, HTMLNames::xhtmlNamespaceURI);
@@ -182,7 +182,7 @@ static JSValue whenDefinedPromise(ExecState& state, JSDOMGlobalObject& globalObj
     if (UNLIKELY(state.argumentCount() < 1))
         return throwException(&state, scope, createNotEnoughArgumentsError(&state));
 
-    AtomicString localName(state.uncheckedArgument(0).toString(&state)->toAtomicString(&state));
+    AtomString localName(state.uncheckedArgument(0).toString(&state)->toAtomString(&state));
     RETURN_IF_EXCEPTION(scope, JSValue());
 
     if (!validateCustomElementNameAndThrowIfNeeded(state, localName)) {
@@ -207,8 +207,8 @@ JSValue JSCustomElementRegistry::whenDefined(ExecState& state)
     auto scope = DECLARE_CATCH_SCOPE(state.vm());
 
     ASSERT(globalObject());
-    auto promiseDeferred = JSPromiseDeferred::create(&state, globalObject());
-    ASSERT(promiseDeferred);
+    auto promiseDeferred = JSPromiseDeferred::tryCreate(&state, globalObject());
+    RELEASE_ASSERT(promiseDeferred);
     JSValue promise = whenDefinedPromise(state, *globalObject(), wrapped(), *promiseDeferred);
 
     if (UNLIKELY(scope.exception())) {

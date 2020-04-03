@@ -30,7 +30,7 @@
 #include "Filter.h"
 #include "FilterEffect.h"
 #include "LightSource.h"
-#include <runtime/Uint8ClampedArray.h>
+#include <JavaScriptCore/Uint8ClampedArray.h>
 
 // Common base class for FEDiffuseLighting and FESpecularLighting
 
@@ -147,7 +147,7 @@ protected:
     void platformApplyGenericPaint(const LightingData&, const LightSource::PaintingData&, int startX, int startY);
     void platformApplyGeneric(const LightingData&, const LightSource::PaintingData&);
 
-#if CPU(ARM_NEON) && CPU(ARM_TRADITIONAL) && COMPILER(GCC_OR_CLANG)
+#if CPU(ARM_NEON) && CPU(ARM_TRADITIONAL) && COMPILER(GCC_COMPATIBLE)
     static int getPowerCoefficients(float exponent);
     inline void platformApplyNeon(const LightingData&, const LightSource::PaintingData&);
 #endif

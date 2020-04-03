@@ -26,6 +26,8 @@
 
 #pragma once
 
+#if ENABLE(WEB_AUTHN)
+
 #include "CredentialsContainer.h"
 #include "Supplementable.h"
 #include <wtf/WeakPtr.h>
@@ -35,6 +37,7 @@ namespace WebCore {
 class Navigator;
 
 class NavigatorCredentials final : public Supplement<Navigator> {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     NavigatorCredentials();
     virtual ~NavigatorCredentials();
@@ -51,3 +54,5 @@ private:
 };
 
 } // namespace WebCore
+
+#endif // ENABLE(WEB_AUTHN)

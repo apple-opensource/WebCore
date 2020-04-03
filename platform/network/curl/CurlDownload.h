@@ -47,10 +47,13 @@ public:
     virtual void didFail() { }
 };
 
-class CurlDownload : public ThreadSafeRefCounted<CurlDownload>, public CurlRequestClient {
+class CurlDownload final : public ThreadSafeRefCounted<CurlDownload>, public CurlRequestClient {
 public:
     CurlDownload() = default;
     ~CurlDownload();
+
+    void ref() override { ThreadSafeRefCounted<CurlDownload>::ref(); }
+    void deref() override { ThreadSafeRefCounted<CurlDownload>::deref(); }
 
     void init(CurlDownloadListener&, const URL&);
     void init(CurlDownloadListener&, ResourceHandle*, const ResourceRequest&, const ResourceResponse&);
@@ -67,10 +70,11 @@ public:
 
 private:
     Ref<CurlRequest> createCurlRequest(ResourceRequest&);
-    void curlDidReceiveResponse(const CurlResponse&) override;
-    void curlDidReceiveBuffer(Ref<SharedBuffer>&&) override;
-    void curlDidComplete() override;
-    void curlDidFailWithError(const ResourceError&) override;
+    void curlDidSendData(CurlRequest&, unsigned long long, unsigned long long) override { }
+    void curlDidReceiveResponse(CurlRequest&, CurlResponse&&) override;
+    void curlDidReceiveBuffer(CurlRequest&, Ref<SharedBuffer>&&) override;
+    void curlDidComplete(CurlRequest&, NetworkLoadMetrics&&) override;
+    void curlDidFailWithError(CurlRequest&, ResourceError&&, CertificateInfo&&) override;
 
     bool shouldRedirectAsGET(const ResourceRequest&, bool crossOrigin);
     void willSendRequest();

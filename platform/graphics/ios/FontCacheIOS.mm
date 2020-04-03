@@ -29,8 +29,11 @@
 #import "config.h"
 #import "FontCache.h"
 
+#if PLATFORM(IOS_FAMILY)
+
 #import "FontCascade.h"
 #import "RenderThemeIOS.h"
+#import "SystemFontDatabaseCoreText.h"
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/CoreTextSPI.h>
 #import <wtf/HashSet.h>
@@ -43,24 +46,20 @@ namespace WebCore {
 
 bool requiresCustomFallbackFont(UChar32 character)
 {
-    return character == AppleLogo || character == blackCircle || character == narrowNonBreakingSpace;
+    return character == AppleLogo || character == narrowNonBreakingSpace;
 }
 
 FontPlatformData* FontCache::getCustomFallbackFont(const UInt32 c, const FontDescription& description)
 {
     ASSERT(requiresCustomFallbackFont(c));
 
-    static NeverDestroyed<AtomicString> helveticaFamily("Helvetica Neue", AtomicString::ConstructFromLiteral);
-    static NeverDestroyed<AtomicString> lockClockFamily("LockClock-Light", AtomicString::ConstructFromLiteral);
-    static NeverDestroyed<AtomicString> timesNewRomanPSMTFamily("TimesNewRomanPSMT", AtomicString::ConstructFromLiteral);
+    static NeverDestroyed<AtomString> helveticaFamily("Helvetica Neue", AtomString::ConstructFromLiteral);
+    static NeverDestroyed<AtomString> timesNewRomanPSMTFamily("TimesNewRomanPSMT", AtomString::ConstructFromLiteral);
 
-    AtomicString* family = nullptr;
+    AtomString* family = nullptr;
     switch (c) {
     case AppleLogo:
         family = &helveticaFamily.get();
-        break;
-    case blackCircle:
-        family = &lockClockFamily.get();
         break;
     case narrowNonBreakingSpace:
         family = &timesNewRomanPSMTFamily.get();
@@ -73,11 +72,6 @@ FontPlatformData* FontCache::getCustomFallbackFont(const UInt32 c, const FontDes
     if (!family)
         return nullptr;
     return getCachedFontPlatformData(description, *family);
-}
-
-Ref<Font> FontCache::lastResortFallbackFont(const FontDescription& fontDescription)
-{
-    return *fontForFamily(fontDescription, AtomicString(".PhoneFallback", AtomicString::ConstructFromLiteral));
 }
 
 static RetainPtr<CTFontDescriptorRef> baseSystemFontDescriptor(FontSelectionValue weight, bool bold, float size)
@@ -135,27 +129,30 @@ static RetainPtr<CTFontDescriptorRef> systemFontDescriptor(FontSelectionValue we
     return adoptCF(CTFontDescriptorCreateCopyWithAttributes(fontDescriptor.get(), static_cast<CFDictionaryRef>(attributes.get())));
 }
 
-RetainPtr<CTFontRef> platformFontWithFamilySpecialCase(const AtomicString& family, FontSelectionRequest request, float size)
+RetainPtr<CTFontRef> platformFontWithFamilySpecialCase(const AtomString& family, const FontDescription& fontDescription, float size, AllowUserInstalledFonts allowUserInstalledFonts)
 {
     // FIXME: See comment in FontCascadeDescription::effectiveFamilyAt() in FontDescriptionCocoa.cpp
+    const auto& request = fontDescription.fontSelectionRequest();
+
     if (family.startsWith("UICTFontTextStyle")) {
         CTFontSymbolicTraits traits = (isFontWeightBold(request.weight) || FontCache::singleton().shouldMockBoldSystemFontForAccessibility() ? kCTFontTraitBold : 0) | (isItalic(request.slope) ? kCTFontTraitItalic : 0);
         RetainPtr<CFStringRef> familyNameStr = family.string().createCFString();
         RetainPtr<CTFontDescriptorRef> fontDescriptor = adoptCF(CTFontDescriptorCreateWithTextStyle(familyNameStr.get(), RenderThemeIOS::contentSizeCategory(), nullptr));
         if (traits)
             fontDescriptor = adoptCF(CTFontDescriptorCreateCopyWithSymbolicTraits(fontDescriptor.get(), traits, traits));
-
-        return adoptCF(CTFontCreateWithFontDescriptor(fontDescriptor.get(), size, nullptr));
+        return createFontForInstalledFonts(fontDescriptor.get(), size, allowUserInstalledFonts);
     }
 
+    // FIXME: Migrate this to use SystemFontDatabaseCoreText like the design system-ui block below.
     if (equalLettersIgnoringASCIICase(family, "-webkit-system-font") || equalLettersIgnoringASCIICase(family, "-apple-system") || equalLettersIgnoringASCIICase(family, "-apple-system-font") || equalLettersIgnoringASCIICase(family, "system-ui")) {
-        return adoptCF(CTFontCreateWithFontDescriptor(systemFontDescriptor(request.weight, isFontWeightBold(request.weight), isItalic(request.slope), size).get(), size, nullptr));
+        auto fontDescriptor = systemFontDescriptor(request.weight, isFontWeightBold(request.weight), isItalic(request.slope), size);
+        return createFontForInstalledFonts(fontDescriptor.get(), size, allowUserInstalledFonts);
     }
 
     if (equalLettersIgnoringASCIICase(family, "-apple-system-monospaced-numbers")) {
         RetainPtr<CTFontDescriptorRef> systemFontDescriptor = adoptCF(CTFontDescriptorCreateForUIType(kCTFontUIFontSystem, size, nullptr));
         RetainPtr<CTFontDescriptorRef> monospaceFontDescriptor = adoptCF(CTFontDescriptorCreateCopyWithFeature(systemFontDescriptor.get(), (CFNumberRef)@(kNumberSpacingType), (CFNumberRef)@(kMonospacedNumbersSelector)));
-        return adoptCF(CTFontCreateWithFontDescriptor(monospaceFontDescriptor.get(), size, nullptr));
+        return createFontForInstalledFonts(monospaceFontDescriptor.get(), size, allowUserInstalledFonts);
     }
 
     if (equalLettersIgnoringASCIICase(family, "lastresort")) {
@@ -173,3 +170,5 @@ RetainPtr<CTFontRef> platformFontWithFamilySpecialCase(const AtomicString& famil
 }
 
 } // namespace WebCore
+
+#endif // PLATFORM(IOS_FAMILY)

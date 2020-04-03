@@ -30,6 +30,7 @@
 #include "config.h"
 #include "InspectorFrontendHost.h"
 
+#include "CertificateInfo.h"
 #include "ContextMenu.h"
 #include "ContextMenuController.h"
 #include "ContextMenuItem.h"
@@ -38,25 +39,26 @@
 #include "Document.h"
 #include "Editor.h"
 #include "Event.h"
+#include "FloatRect.h"
 #include "FocusController.h"
+#include "Frame.h"
 #include "HitTestResult.h"
 #include "InspectorController.h"
 #include "InspectorFrontendClient.h"
 #include "JSDOMConvertInterface.h"
 #include "JSDOMExceptionHandling.h"
+#include "JSExecState.h"
 #include "JSInspectorFrontendHost.h"
-#include "JSMainThreadExecState.h"
-#include "MainFrame.h"
 #include "MouseEvent.h"
 #include "Node.h"
 #include "Page.h"
 #include "Pasteboard.h"
 #include "ScriptState.h"
 #include "UserGestureIndicator.h"
-#include <bindings/ScriptFunctionCall.h>
+#include <JavaScriptCore/ScriptFunctionCall.h>
 #include <pal/system/Sound.h>
 #include <wtf/StdLibExtras.h>
-
+#include <wtf/text/Base64.h>
 
 namespace WebCore {
 
@@ -189,6 +191,19 @@ void InspectorFrontendHost::closeWindow()
     }
 }
 
+void InspectorFrontendHost::reopen()
+{
+    if (m_client)
+        m_client->reopen();
+}
+
+void InspectorFrontendHost::reset()
+{
+    if (m_client)
+        m_client->resetState();
+    reopen();
+}
+
 void InspectorFrontendHost::bringToFront()
 {
     if (m_client)
@@ -218,9 +233,9 @@ float InspectorFrontendHost::zoomFactor()
 String InspectorFrontendHost::userInterfaceLayoutDirection()
 {
     if (m_client && m_client->userInterfaceLayoutDirection() == UserInterfaceLayoutDirection::RTL)
-        return ASCIILiteral("rtl");
+        return "rtl"_s;
 
-    return ASCIILiteral("ltr");
+    return "ltr"_s;
 }
 
 void InspectorFrontendHost::setAttachedWindowHeight(unsigned height)
@@ -235,6 +250,12 @@ void InspectorFrontendHost::setAttachedWindowWidth(unsigned width)
         m_client->changeAttachedWindowWidth(width);
 }
 
+void InspectorFrontendHost::setSheetRect(float x, float y, unsigned width, unsigned height)
+{
+    if (m_client)
+        m_client->changeSheetRect(FloatRect(x, y, width, height));
+}
+
 void InspectorFrontendHost::startWindowDrag()
 {
     if (m_client)
@@ -245,6 +266,11 @@ void InspectorFrontendHost::moveWindowBy(float x, float y) const
 {
     if (m_client)
         m_client->moveWindowBy(x, y);
+}
+
+bool InspectorFrontendHost::isRemote() const
+{
+    return m_client ? m_client->isRemote() : false;
 }
 
 String InspectorFrontendHost::localizedStringsURL()
@@ -269,27 +295,27 @@ unsigned InspectorFrontendHost::inspectionLevel()
 
 String InspectorFrontendHost::platform()
 {
-#if PLATFORM(MAC) || PLATFORM(IOS)
-    return ASCIILiteral("mac");
+#if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
+    return "mac"_s;
 #elif OS(WINDOWS)
-    return ASCIILiteral("windows");
+    return "windows"_s;
 #elif OS(LINUX)
-    return ASCIILiteral("linux");
+    return "linux"_s;
 #elif OS(FREEBSD)
-    return ASCIILiteral("freebsd");
+    return "freebsd"_s;
 #elif OS(OPENBSD)
-    return ASCIILiteral("openbsd");
+    return "openbsd"_s;
 #else
-    return ASCIILiteral("unknown");
+    return "unknown"_s;
 #endif
 }
 
 String InspectorFrontendHost::port()
 {
 #if PLATFORM(GTK)
-    return ASCIILiteral("gtk");
+    return "gtk"_s;
 #else
-    return ASCIILiteral("unknown");
+    return "unknown"_s;
 #endif
 }
 
@@ -311,7 +337,7 @@ void InspectorFrontendHost::killText(const String& text, bool shouldPrependToKil
 
 void InspectorFrontendHost::openInNewTab(const String& url)
 {
-    if (WebCore::protocolIsJavaScript(url))
+    if (WTF::protocolIsJavaScript(url))
         return;
 
     if (m_client)
@@ -366,7 +392,7 @@ static void populateContextMenu(Vector<InspectorFrontendHost::ContextMenuItem>&&
         }
 
         auto type = item.type == "checkbox" ? CheckableActionType : ActionType;
-        auto action = static_cast<ContextMenuAction>(ContextMenuItemBaseCustomTag + item.id.value_or(0));
+        auto action = static_cast<ContextMenuAction>(ContextMenuItemBaseCustomTag + item.id.valueOr(0));
         ContextMenuItem menuItem = { type, action, item.label };
         if (item.enabled)
             menuItem.setEnabled(*item.enabled);
@@ -407,10 +433,8 @@ void InspectorFrontendHost::dispatchEventAsContextMenuEvent(Event& event)
         return;
 
     auto& mouseEvent = downcast<MouseEvent>(event);
-    IntPoint mousePoint { mouseEvent.clientX(), mouseEvent.clientY() };
     auto& frame = *downcast<Node>(mouseEvent.target())->document().frame();
-
-    m_frontendPage->contextMenuController().showContextMenuAt(frame, mousePoint);
+    m_frontendPage->contextMenuController().showContextMenuAt(frame, roundedIntPoint(mouseEvent.absoluteLocation()));
 #else
     UNUSED_PARAM(event);
 #endif
@@ -436,6 +460,45 @@ void InspectorFrontendHost::inspectInspector()
 {
     if (m_frontendPage)
         m_frontendPage->inspectorController().show();
+}
+
+bool InspectorFrontendHost::isBeingInspected()
+{
+    if (!m_frontendPage)
+        return false;
+
+    InspectorController& inspectorController = m_frontendPage->inspectorController();
+    return inspectorController.hasLocalFrontend() || inspectorController.hasRemoteFrontend();
+}
+
+bool InspectorFrontendHost::supportsShowCertificate() const
+{
+#if PLATFORM(COCOA)
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool InspectorFrontendHost::showCertificate(const String& serializedCertificate)
+{
+    if (!m_client)
+        return false;
+
+    Vector<uint8_t> data;
+    if (!base64Decode(serializedCertificate, data))
+        return false;
+
+    CertificateInfo certificateInfo;
+    WTF::Persistence::Decoder decoder(data.data(), data.size());
+    if (!decoder.decode(certificateInfo))
+        return false;
+
+    if (certificateInfo.isEmpty())
+        return false;
+
+    m_client->showCertificate(certificateInfo);
+    return true;
 }
 
 } // namespace WebCore

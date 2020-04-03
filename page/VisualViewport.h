@@ -31,14 +31,15 @@
 
 namespace WebCore {
 
-class Frame;
-
 class VisualViewport final : public RefCounted<VisualViewport>, public EventTargetWithInlineData, public DOMWindowProperty {
+    WTF_MAKE_ISO_ALLOCATED(VisualViewport);
 public:
-    static Ref<VisualViewport> create(Frame* frame) { return adoptRef(*new VisualViewport(frame)); }
+    static Ref<VisualViewport> create(DOMWindow& window) { return adoptRef(*new VisualViewport(window)); }
 
+    // EventTarget
     EventTargetInterface eventTargetInterface() const final;
     ScriptExecutionContext* scriptExecutionContext() const final;
+    bool addEventListener(const AtomString& eventType, Ref<EventListener>&&, const AddEventListenerOptions&) final;
 
     double offsetLeft() const;
     double offsetTop() const;
@@ -48,14 +49,29 @@ public:
     double height() const;
     double scale() const;
 
+    void update();
+
     using RefCounted::ref;
     using RefCounted::deref;
 
 private:
-    explicit VisualViewport(Frame*);
+    explicit VisualViewport(DOMWindow&);
 
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
+
+    void enqueueResizeEvent();
+    void enqueueScrollEvent();
+
+    void updateFrameLayout() const;
+
+    double m_offsetLeft { 0 };
+    double m_offsetTop { 0 };
+    double m_pageLeft { 0 };
+    double m_pageTop { 0 };
+    double m_width { 0 };
+    double m_height { 0 };
+    double m_scale { 1 };
 };
 
 } // namespace WebCore

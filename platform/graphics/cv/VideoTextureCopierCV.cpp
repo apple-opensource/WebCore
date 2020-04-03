@@ -26,14 +26,17 @@
 #include "config.h"
 #include "VideoTextureCopierCV.h"
 
+#if HAVE(CORE_VIDEO)
+
 #include "FourCC.h"
 #include "Logging.h"
 #include "TextureCacheCV.h"
 #include <pal/spi/cocoa/IOSurfaceSPI.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/StdMap.h>
 #include <wtf/text/StringBuilder.h>
 
-#if PLATFORM(IOS)
+#if USE(OPENGL_ES)
 #include <OpenGLES/ES3/glext.h>
 #endif
 
@@ -41,7 +44,7 @@
 
 namespace WebCore {
 
-#if USE(IOSURFACE)
+#if HAVE(IOSURFACE)
 enum class PixelRange {
     Unknown,
     Video,
@@ -96,6 +99,8 @@ static PixelRange pixelRangeFromPixelFormat(OSType pixelFormat)
 
 static TransferFunction transferFunctionFromString(CFStringRef string)
 {
+    if (!string || CFGetTypeID(string) != CFStringGetTypeID())
+        return TransferFunction::Unknown;
     if (CFEqual(string, kCVImageBufferYCbCrMatrix_ITU_R_709_2))
         return TransferFunction::kITU_R_709_2;
     if (CFEqual(string, kCVImageBufferYCbCrMatrix_ITU_R_601_4))
@@ -246,7 +251,7 @@ constexpr GLfloatColor YCbCrMatrix::operator*(const GLfloatColor& color) const
 static const Vector<GLfloat> YCbCrToRGBMatrixForRangeAndTransferFunction(PixelRange range, TransferFunction transferFunction)
 {
     using MapKey = std::pair<PixelRange, TransferFunction>;
-    using MatrixMap = std::map<MapKey, Vector<GLfloat>>;
+    using MatrixMap = StdMap<MapKey, Vector<GLfloat>>;
 
     static NeverDestroyed<MatrixMap> matrices;
     static dispatch_once_t onceToken;
@@ -368,7 +373,7 @@ static const Vector<GLfloat> YCbCrToRGBMatrixForRangeAndTransferFunction(PixelRa
     ASSERT(iterator != matrices.get().end());
     return iterator->second;
 }
-#endif // USE(IOSURFACE)
+#endif // HAVE(IOSURFACE)
 
 VideoTextureCopierCV::VideoTextureCopierCV(GraphicsContext3D& context)
     : m_sharedContext(context)
@@ -391,71 +396,71 @@ VideoTextureCopierCV::~VideoTextureCopierCV()
 }
 
 #if !LOG_DISABLED
-using StringMap = std::map<uint32_t, const char*, std::less<uint32_t>, FastAllocator<std::pair<const uint32_t, const char*>>>;
+using StringMap = StdMap<uint32_t, const char*>;
 #define STRINGIFY_PAIR(e) e, #e
 static StringMap& enumToStringMap()
 {
     static NeverDestroyed<StringMap> map;
     if (map.get().empty()) {
         StringMap stringMap;
-        map.get().emplace(STRINGIFY_PAIR(GL_RGB));
-        map.get().emplace(STRINGIFY_PAIR(GL_RGBA));
-        map.get().emplace(STRINGIFY_PAIR(GL_LUMINANCE_ALPHA));
-        map.get().emplace(STRINGIFY_PAIR(GL_LUMINANCE));
-        map.get().emplace(STRINGIFY_PAIR(GL_ALPHA));
-        map.get().emplace(STRINGIFY_PAIR(GL_R8));
-        map.get().emplace(STRINGIFY_PAIR(GL_R16F));
-        map.get().emplace(STRINGIFY_PAIR(GL_R32F));
-        map.get().emplace(STRINGIFY_PAIR(GL_R8UI));
-        map.get().emplace(STRINGIFY_PAIR(GL_R8I));
-        map.get().emplace(STRINGIFY_PAIR(GL_R16UI));
-        map.get().emplace(STRINGIFY_PAIR(GL_R16I));
-        map.get().emplace(STRINGIFY_PAIR(GL_R32UI));
-        map.get().emplace(STRINGIFY_PAIR(GL_R32I));
-        map.get().emplace(STRINGIFY_PAIR(GL_RG8));
-        map.get().emplace(STRINGIFY_PAIR(GL_RG16F));
-        map.get().emplace(STRINGIFY_PAIR(GL_RG32F));
-        map.get().emplace(STRINGIFY_PAIR(GL_RG8UI));
-        map.get().emplace(STRINGIFY_PAIR(GL_RG8I));
-        map.get().emplace(STRINGIFY_PAIR(GL_RG16UI));
-        map.get().emplace(STRINGIFY_PAIR(GL_RG16I));
-        map.get().emplace(STRINGIFY_PAIR(GL_RG32UI));
-        map.get().emplace(STRINGIFY_PAIR(GL_RG32I));
-        map.get().emplace(STRINGIFY_PAIR(GL_RGB8));
-        map.get().emplace(STRINGIFY_PAIR(GL_SRGB8));
-        map.get().emplace(STRINGIFY_PAIR(GL_RGBA8));
-        map.get().emplace(STRINGIFY_PAIR(GL_SRGB8_ALPHA8));
-        map.get().emplace(STRINGIFY_PAIR(GL_RGBA4));
-        map.get().emplace(STRINGIFY_PAIR(GL_RGB10_A2));
-        map.get().emplace(STRINGIFY_PAIR(GL_DEPTH_COMPONENT16));
-        map.get().emplace(STRINGIFY_PAIR(GL_DEPTH_COMPONENT24));
-        map.get().emplace(STRINGIFY_PAIR(GL_DEPTH_COMPONENT32F));
-        map.get().emplace(STRINGIFY_PAIR(GL_DEPTH24_STENCIL8));
-        map.get().emplace(STRINGIFY_PAIR(GL_DEPTH32F_STENCIL8));
-        map.get().emplace(STRINGIFY_PAIR(GL_RGB));
-        map.get().emplace(STRINGIFY_PAIR(GL_RGBA));
-        map.get().emplace(STRINGIFY_PAIR(GL_LUMINANCE_ALPHA));
-        map.get().emplace(STRINGIFY_PAIR(GL_LUMINANCE));
-        map.get().emplace(STRINGIFY_PAIR(GL_ALPHA));
-        map.get().emplace(STRINGIFY_PAIR(GL_RED));
-        map.get().emplace(STRINGIFY_PAIR(GL_RG_INTEGER));
-        map.get().emplace(STRINGIFY_PAIR(GL_DEPTH_STENCIL));
-        map.get().emplace(STRINGIFY_PAIR(GL_UNSIGNED_BYTE));
-        map.get().emplace(STRINGIFY_PAIR(GL_UNSIGNED_SHORT_5_6_5));
-        map.get().emplace(STRINGIFY_PAIR(GL_UNSIGNED_SHORT_4_4_4_4));
-        map.get().emplace(STRINGIFY_PAIR(GL_UNSIGNED_SHORT_5_5_5_1));
-        map.get().emplace(STRINGIFY_PAIR(GL_BYTE));
-        map.get().emplace(STRINGIFY_PAIR(GL_HALF_FLOAT));
-        map.get().emplace(STRINGIFY_PAIR(GL_FLOAT));
-        map.get().emplace(STRINGIFY_PAIR(GL_UNSIGNED_SHORT));
-        map.get().emplace(STRINGIFY_PAIR(GL_SHORT));
-        map.get().emplace(STRINGIFY_PAIR(GL_UNSIGNED_INT));
-        map.get().emplace(STRINGIFY_PAIR(GL_INT));
-        map.get().emplace(STRINGIFY_PAIR(GL_UNSIGNED_INT_2_10_10_10_REV));
-        map.get().emplace(STRINGIFY_PAIR(GL_UNSIGNED_INT_24_8));
-        map.get().emplace(STRINGIFY_PAIR(GL_FLOAT_32_UNSIGNED_INT_24_8_REV));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RGB));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RGBA));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::LUMINANCE_ALPHA));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::LUMINANCE));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::ALPHA));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::R8));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::R16F));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::R32F));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::R8UI));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::R8I));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::R16UI));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::R16I));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::R32UI));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::R32I));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RG8));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RG16F));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RG32F));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RG8UI));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RG8I));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RG16UI));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RG16I));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RG32UI));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RG32I));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RGB8));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::SRGB8));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RGBA8));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::SRGB8_ALPHA8));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RGBA4));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RGB10_A2));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::DEPTH_COMPONENT16));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::DEPTH_COMPONENT24));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::DEPTH_COMPONENT32F));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::DEPTH24_STENCIL8));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::DEPTH32F_STENCIL8));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RGB));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RGBA));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::LUMINANCE_ALPHA));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::LUMINANCE));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::ALPHA));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RED));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::RG_INTEGER));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::DEPTH_STENCIL));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::UNSIGNED_BYTE));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::UNSIGNED_SHORT_5_6_5));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::UNSIGNED_SHORT_4_4_4_4));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::UNSIGNED_SHORT_5_5_5_1));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::BYTE));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::HALF_FLOAT));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::FLOAT));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::UNSIGNED_SHORT));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::SHORT));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::UNSIGNED_INT));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::INT));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::UNSIGNED_INT_2_10_10_10_REV));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::UNSIGNED_INT_24_8));
+        map.get().emplace(STRINGIFY_PAIR(GraphicsContext3D::FLOAT_32_UNSIGNED_INT_24_8_REV));
 
-#if PLATFORM(IOS)
+#if USE(OPENGL_ES)
         map.get().emplace(STRINGIFY_PAIR(GL_RED_INTEGER));
         map.get().emplace(STRINGIFY_PAIR(GL_RGB_INTEGER));
         map.get().emplace(STRINGIFY_PAIR(GL_RG8_SNORM));
@@ -522,11 +527,16 @@ bool VideoTextureCopierCV::initializeContextObjects()
 
     StringBuilder fragmentShaderSource;
 
-#if PLATFORM(IOS)
+#if USE(OPENGL_ES)
     fragmentShaderSource.appendLiteral("precision mediump float;\n");
     fragmentShaderSource.appendLiteral("uniform sampler2D u_texture;\n");
-#else
+#elif USE(OPENGL)
     fragmentShaderSource.appendLiteral("uniform sampler2DRect u_texture;\n");
+#elif USE(ANGLE)
+    // FIXME: determine how to access rectangular textures via ANGLE.
+    ASSERT_NOT_REACHED();
+#else
+#error Unsupported configuration
 #endif
     fragmentShaderSource.appendLiteral("varying vec2 v_texturePosition;\n");
     fragmentShaderSource.appendLiteral("uniform int u_premultiply;\n");
@@ -534,10 +544,15 @@ bool VideoTextureCopierCV::initializeContextObjects()
     fragmentShaderSource.appendLiteral("uniform int u_swapColorChannels;\n");
     fragmentShaderSource.appendLiteral("void main() {\n");
     fragmentShaderSource.appendLiteral("    vec2 texPos = vec2(v_texturePosition.x * u_textureDimensions.x, v_texturePosition.y * u_textureDimensions.y);\n");
-#if PLATFORM(IOS)
+#if USE(OPENGL_ES)
     fragmentShaderSource.appendLiteral("    vec4 color = texture2D(u_texture, texPos);\n");
-#else
+#elif USE(OPENGL)
     fragmentShaderSource.appendLiteral("    vec4 color = texture2DRect(u_texture, texPos);\n");
+#elif USE(ANGLE)
+    // FIXME: determine how to access rectangular textures via ANGLE.
+    ASSERT_NOT_REACHED();
+#else
+#error Unsupported configuration
 #endif
     fragmentShaderSource.appendLiteral("    if (u_swapColorChannels == 1) {\n");
     fragmentShaderSource.appendLiteral("        color.rgba = color.bgra;\n");
@@ -576,12 +591,12 @@ bool VideoTextureCopierCV::initializeContextObjects()
         return false;
     }
 
-    m_textureUniformLocation = m_context->getUniformLocation(m_program, ASCIILiteral("u_texture"));
-    m_textureDimensionsUniformLocation = m_context->getUniformLocation(m_program, ASCIILiteral("u_textureDimensions"));
-    m_flipYUniformLocation = m_context->getUniformLocation(m_program, ASCIILiteral("u_flipY"));
-    m_swapColorChannelsUniformLocation = m_context->getUniformLocation(m_program, ASCIILiteral("u_swapColorChannels"));
-    m_premultiplyUniformLocation = m_context->getUniformLocation(m_program, ASCIILiteral("u_premultiply"));
-    m_positionAttributeLocation = m_context->getAttribLocationDirect(m_program, ASCIILiteral("a_position"));
+    m_textureUniformLocation = m_context->getUniformLocation(m_program, "u_texture"_s);
+    m_textureDimensionsUniformLocation = m_context->getUniformLocation(m_program, "u_textureDimensions"_s);
+    m_flipYUniformLocation = m_context->getUniformLocation(m_program, "u_flipY"_s);
+    m_swapColorChannelsUniformLocation = m_context->getUniformLocation(m_program, "u_swapColorChannels"_s);
+    m_premultiplyUniformLocation = m_context->getUniformLocation(m_program, "u_premultiply"_s);
+    m_positionAttributeLocation = m_context->getAttribLocationDirect(m_program, "a_position"_s);
 
     m_context->detachShader(m_program, vertexShader);
     m_context->detachShader(m_program, fragmentShader);
@@ -602,7 +617,7 @@ bool VideoTextureCopierCV::initializeContextObjects()
 
 bool VideoTextureCopierCV::initializeUVContextObjects()
 {
-    String vertexShaderSource = ASCIILiteral(
+    String vertexShaderSource {
         "attribute vec2 a_position;\n"
         "uniform vec2 u_yTextureSize;\n"
         "uniform vec2 u_uvTextureSize;\n"
@@ -615,15 +630,19 @@ bool VideoTextureCopierCV::initializeUVContextObjects()
         "   if (u_flipY == 1) {\n"
         "       normalizedPosition.y = 1.0 - normalizedPosition.y;\n"
         "   }\n"
-#if PLATFORM(IOS)
+#if USE(OPENGL_ES)
         "   v_yTextureCoordinate = normalizedPosition;\n"
         "   v_uvTextureCoordinate = normalizedPosition;\n"
-#else
+#elif USE(OPENGL)
         "   v_yTextureCoordinate = normalizedPosition * u_yTextureSize;\n"
         "   v_uvTextureCoordinate = normalizedPosition * u_uvTextureSize;\n"
+#elif USE(ANGLE)
+        // FIXME: determine how to access rectangular textures via ANGLE.
+#else
+#error Unsupported configuration
 #endif
-        "}\n"
-    );
+        "}\n"_s
+    };
 
     Platform3DObject vertexShader = m_context->createShader(GraphicsContext3D::VERTEX_SHADER);
     m_context->shaderSource(vertexShader, vertexShaderSource);
@@ -637,14 +656,18 @@ bool VideoTextureCopierCV::initializeUVContextObjects()
         return false;
     }
 
-    String fragmentShaderSource = ASCIILiteral(
-#if PLATFORM(IOS)
+    String fragmentShaderSource {
+#if USE(OPENGL_ES)
         "precision mediump float;\n"
         "#define SAMPLERTYPE sampler2D\n"
         "#define TEXTUREFUNC texture2D\n"
-#else
+#elif USE(OPENGL)
         "#define SAMPLERTYPE sampler2DRect\n"
         "#define TEXTUREFUNC texture2DRect\n"
+#elif USE(ANGLE)
+        // FIXME: determine how to access rectangular textures via ANGLE.
+#else
+#error Unsupported configuration
 #endif
         "uniform SAMPLERTYPE u_yTexture;\n"
         "uniform SAMPLERTYPE u_uvTexture;\n"
@@ -657,8 +680,8 @@ bool VideoTextureCopierCV::initializeUVContextObjects()
         "    yuv.gb = TEXTUREFUNC(u_uvTexture, v_uvTextureCoordinate).rg;\n"
         "    yuv.a = 1.0;\n"
         "    gl_FragColor = yuv * u_colorMatrix;\n"
-        "}\n"
-    );
+        "}\n"_s
+    };
 
     Platform3DObject fragmentShader = m_context->createShader(GraphicsContext3D::FRAGMENT_SHADER);
     m_context->shaderSource(fragmentShader, fragmentShaderSource);
@@ -687,13 +710,13 @@ bool VideoTextureCopierCV::initializeUVContextObjects()
         return false;
     }
 
-    m_yTextureUniformLocation = m_context->getUniformLocation(m_yuvProgram, ASCIILiteral("u_yTexture"));
-    m_uvTextureUniformLocation = m_context->getUniformLocation(m_yuvProgram, ASCIILiteral("u_uvTexture"));
-    m_colorMatrixUniformLocation = m_context->getUniformLocation(m_yuvProgram, ASCIILiteral("u_colorMatrix"));
-    m_yuvFlipYUniformLocation = m_context->getUniformLocation(m_yuvProgram, ASCIILiteral("u_flipY"));
-    m_yTextureSizeUniformLocation = m_context->getUniformLocation(m_yuvProgram, ASCIILiteral("u_yTextureSize"));
-    m_uvTextureSizeUniformLocation = m_context->getUniformLocation(m_yuvProgram, ASCIILiteral("u_uvTextureSize"));
-    m_yuvPositionAttributeLocation = m_context->getAttribLocationDirect(m_yuvProgram, ASCIILiteral("a_position"));
+    m_yTextureUniformLocation = m_context->getUniformLocation(m_yuvProgram, "u_yTexture"_s);
+    m_uvTextureUniformLocation = m_context->getUniformLocation(m_yuvProgram, "u_uvTexture"_s);
+    m_colorMatrixUniformLocation = m_context->getUniformLocation(m_yuvProgram, "u_colorMatrix"_s);
+    m_yuvFlipYUniformLocation = m_context->getUniformLocation(m_yuvProgram, "u_flipY"_s);
+    m_yTextureSizeUniformLocation = m_context->getUniformLocation(m_yuvProgram, "u_yTextureSize"_s);
+    m_uvTextureSizeUniformLocation = m_context->getUniformLocation(m_yuvProgram, "u_uvTextureSize"_s);
+    m_yuvPositionAttributeLocation = m_context->getAttribLocationDirect(m_yuvProgram, "a_position"_s);
 
     m_context->detachShader(m_yuvProgram, vertexShader);
     m_context->detachShader(m_yuvProgram, fragmentShader);
@@ -721,14 +744,14 @@ bool VideoTextureCopierCV::copyImageToPlatformTexture(CVPixelBufferRef image, si
 
     if (auto texture = m_textureCache->textureFromImage(image, outputTarget, level, internalFormat, format, type)) {
         bool swapColorChannels = false;
-#if PLATFORM(IOS)
+#if USE(OPENGL_ES)
         // FIXME: Remove this workaround once rdar://problem/35834388 is fixed.
         swapColorChannels = CVPixelBufferGetPixelFormatType(image) == kCVPixelFormatType_32BGRA;
 #endif
         return copyVideoTextureToPlatformTexture(texture.get(), width, height, outputTexture, outputTarget, level, internalFormat, format, type, premultiplyAlpha, flipY, swapColorChannels);
     }
 
-#if USE(IOSURFACE)
+#if HAVE(IOSURFACE)
     // FIXME: This currently only supports '420v' and '420f' pixel formats. Investigate supporting more pixel formats.
     OSType pixelFormat = CVPixelBufferGetPixelFormatType(image);
     if (pixelFormat != kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange && pixelFormat != kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) {
@@ -783,10 +806,15 @@ bool VideoTextureCopierCV::copyImageToPlatformTexture(CVPixelBufferRef image, si
     auto uvPlaneWidth = IOSurfaceGetWidthOfPlane(surface, 1);
     auto uvPlaneHeight = IOSurfaceGetHeightOfPlane(surface, 1);
 
-#if PLATFORM(IOS)
+#if USE(OPENGL_ES)
+    GC3Denum videoTextureTarget = GraphicsContext3D::TEXTURE_2D;
+#elif USE(OPENGL)
+    GC3Denum videoTextureTarget = GL_TEXTURE_RECTANGLE_ARB;
+#elif USE(ANGLE)
+    // FIXME: determine how to access rectangular textures via ANGLE.
     GC3Denum videoTextureTarget = GraphicsContext3D::TEXTURE_2D;
 #else
-    GC3Denum videoTextureTarget = GL_TEXTURE_RECTANGLE_ARB;
+#error Unsupported configuration
 #endif
     auto uvTexture = m_context->createTexture();
     m_context->activeTexture(GraphicsContext3D::TEXTURE1);
@@ -795,7 +823,7 @@ bool VideoTextureCopierCV::copyImageToPlatformTexture(CVPixelBufferRef image, si
     m_context->texParameteri(videoTextureTarget, GraphicsContext3D::TEXTURE_MIN_FILTER, GraphicsContext3D::LINEAR);
     m_context->texParameteri(videoTextureTarget, GraphicsContext3D::TEXTURE_WRAP_S, GraphicsContext3D::CLAMP_TO_EDGE);
     m_context->texParameteri(videoTextureTarget, GraphicsContext3D::TEXTURE_WRAP_T, GraphicsContext3D::CLAMP_TO_EDGE);
-    if (!m_context->texImageIOSurface2D(videoTextureTarget, GL_RG, uvPlaneWidth, uvPlaneHeight, GL_RG, GL_UNSIGNED_BYTE, surface, 1)) {
+    if (!m_context->texImageIOSurface2D(videoTextureTarget, GraphicsContext3D::RG, uvPlaneWidth, uvPlaneHeight, GraphicsContext3D::RG, GraphicsContext3D::UNSIGNED_BYTE, surface, 1)) {
         m_context->deleteTexture(uvTexture);
         return false;
     }
@@ -807,7 +835,7 @@ bool VideoTextureCopierCV::copyImageToPlatformTexture(CVPixelBufferRef image, si
     m_context->texParameteri(videoTextureTarget, GraphicsContext3D::TEXTURE_MIN_FILTER, GraphicsContext3D::LINEAR);
     m_context->texParameteri(videoTextureTarget, GraphicsContext3D::TEXTURE_WRAP_S, GraphicsContext3D::CLAMP_TO_EDGE);
     m_context->texParameteri(videoTextureTarget, GraphicsContext3D::TEXTURE_WRAP_T, GraphicsContext3D::CLAMP_TO_EDGE);
-    if (!m_context->texImageIOSurface2D(videoTextureTarget, GL_LUMINANCE, yPlaneWidth, yPlaneHeight, GL_LUMINANCE, GL_UNSIGNED_BYTE, surface, 0)) {
+    if (!m_context->texImageIOSurface2D(videoTextureTarget, GraphicsContext3D::LUMINANCE, yPlaneWidth, yPlaneHeight, GraphicsContext3D::LUMINANCE, GraphicsContext3D::UNSIGNED_BYTE, surface, 0)) {
         m_context->deleteTexture(yTexture);
         m_context->deleteTexture(uvTexture);
         return false;
@@ -828,7 +856,7 @@ bool VideoTextureCopierCV::copyImageToPlatformTexture(CVPixelBufferRef image, si
     // Do the actual drawing.
     m_context->drawArrays(GraphicsContext3D::TRIANGLES, 0, 6);
 
-#if PLATFORM(IOS)
+#if USE(OPENGL_ES)
     // flush() must be called here in order to re-synchronize the output texture's contents across the
     // two EAGL contexts.
     m_context->flush();
@@ -846,7 +874,7 @@ bool VideoTextureCopierCV::copyImageToPlatformTexture(CVPixelBufferRef image, si
     return true;
 #else
     return false;
-#endif // USE(IOSURFACE)
+#endif // HAVE(IOSURFACE)
 }
 
 bool VideoTextureCopierCV::copyVideoTextureToPlatformTexture(TextureType inputVideoTexture, size_t width, size_t height, Platform3DObject outputTexture, GC3Denum outputTarget, GC3Dint level, GC3Denum internalFormat, GC3Denum format, GC3Denum type, bool premultiplyAlpha, bool flipY, bool swapColorChannels)
@@ -858,14 +886,20 @@ bool VideoTextureCopierCV::copyVideoTextureToPlatformTexture(TextureType inputVi
     GLfloat lowerRight[2] = { 0, 0 };
     GLfloat upperRight[2] = { 0, 0 };
     GLfloat upperLeft[2] = { 0, 0 };
-#if PLATFORM(IOS)
+#if USE(OPENGL_ES)
     Platform3DObject videoTextureName = CVOpenGLESTextureGetName(inputVideoTexture);
     GC3Denum videoTextureTarget = CVOpenGLESTextureGetTarget(inputVideoTexture);
     CVOpenGLESTextureGetCleanTexCoords(inputVideoTexture, lowerLeft, lowerRight, upperRight, upperLeft);
-#else
+#elif USE(OPENGL)
     Platform3DObject videoTextureName = CVOpenGLTextureGetName(inputVideoTexture);
     GC3Denum videoTextureTarget = CVOpenGLTextureGetTarget(inputVideoTexture);
     CVOpenGLTextureGetCleanTexCoords(inputVideoTexture, lowerLeft, lowerRight, upperRight, upperLeft);
+#elif USE(ANGLE)
+    Platform3DObject videoTextureName = CVOpenGLTextureGetName(inputVideoTexture);
+    GC3Denum videoTextureTarget = CVOpenGLTextureGetTarget(inputVideoTexture);
+    CVOpenGLTextureGetCleanTexCoords(inputVideoTexture, lowerLeft, lowerRight, upperRight, upperLeft);
+    // FIXME: determine how to access rectangular textures via ANGLE.
+    ASSERT_NOT_REACHED();
 #endif
 
     if (lowerLeft[1] < upperRight[1])
@@ -915,7 +949,7 @@ bool VideoTextureCopierCV::copyVideoTextureToPlatformTexture(Platform3DObject vi
 
     // Configure the drawing parameters.
     m_context->uniform1i(m_textureUniformLocation, 0);
-#if PLATFORM(IOS)
+#if USE(OPENGL_ES)
     m_context->uniform2f(m_textureDimensionsUniformLocation, 1, 1);
 #else
     m_context->uniform2f(m_textureDimensionsUniformLocation, width, height);
@@ -931,7 +965,7 @@ bool VideoTextureCopierCV::copyVideoTextureToPlatformTexture(Platform3DObject vi
     m_context->vertexAttribPointer(m_positionAttributeLocation, 2, GraphicsContext3D::FLOAT, false, 0, 0);
     m_context->drawArrays(GraphicsContext3D::TRIANGLES, 0, 6);
 
-#if PLATFORM(IOS)
+#if USE(OPENGL_ES)
     // flush() must be called here in order to re-synchronize the output texture's contents across the
     // two EAGL contexts.
     m_context->flush();
@@ -945,3 +979,5 @@ bool VideoTextureCopierCV::copyVideoTextureToPlatformTexture(Platform3DObject vi
 }
 
 }
+
+#endif // HAVE(CORE_VIDEO)

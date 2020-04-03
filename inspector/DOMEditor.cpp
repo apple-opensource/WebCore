@@ -159,7 +159,7 @@ private:
 class DOMEditor::SetAttributeAction final : public InspectorHistory::Action {
     WTF_MAKE_NONCOPYABLE(SetAttributeAction);
 public:
-    SetAttributeAction(Element& element, const AtomicString& name, const AtomicString& value)
+    SetAttributeAction(Element& element, const AtomString& name, const AtomString& value)
         : InspectorHistory::Action()
         , m_element(element)
         , m_name(name)
@@ -189,9 +189,9 @@ private:
     }
 
     Ref<Element> m_element;
-    AtomicString m_name;
-    AtomicString m_value;
-    AtomicString m_oldValue;
+    AtomString m_name;
+    AtomString m_value;
+    AtomString m_oldValue;
 };
 
 class DOMEditor::SetOuterHTMLAction final : public InspectorHistory::Action {
@@ -212,7 +212,7 @@ public:
 private:
     ExceptionOr<void> perform() final
     {
-        m_oldHTML = createMarkup(m_node.get());
+        m_oldHTML = serializeFragment(m_node.get(), SerializedNodes::SubtreeIncludingNode);
         auto result = DOMPatchSupport { m_domEditor, m_node->document() }.patchNode(m_node, m_html);
         if (result.hasException())
             return result.releaseException();
@@ -266,7 +266,7 @@ private:
 
     ExceptionOr<void> redo() final
     {
-        auto result = m_element->insertAdjacentHTML(m_position, m_html, m_addedNodes);
+        auto result = m_element->insertAdjacentHTML(m_position, m_html, &m_addedNodes);
         if (result.hasException())
             return result.releaseException();
         return { };

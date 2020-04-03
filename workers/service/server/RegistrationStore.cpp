@@ -32,16 +32,15 @@
 
 namespace WebCore {
 
-RegistrationStore::RegistrationStore(SWServer& server, const String& databaseDirectory)
+RegistrationStore::RegistrationStore(SWServer& server, String&& databaseDirectory)
     : m_server(server)
-    , m_database(*this, databaseDirectory)
+    , m_database(RegistrationDatabase::create(*this, WTFMove(databaseDirectory)))
     , m_databasePushTimer(*this, &RegistrationStore::pushChangesToDatabase)
 {
 }
 
 RegistrationStore::~RegistrationStore()
 {
-    ASSERT(m_database.isClosed());
 }
 
 void RegistrationStore::scheduleDatabasePushIfNecessary()
@@ -53,20 +52,26 @@ void RegistrationStore::scheduleDatabasePushIfNecessary()
 
 void RegistrationStore::pushChangesToDatabase(WTF::CompletionHandler<void()>&& completionHandler)
 {
+    if (m_isSuspended) {
+        m_needsPushingChanges = true;
+        return;
+    }
+
     Vector<ServiceWorkerContextData> changesToPush;
     changesToPush.reserveInitialCapacity(m_updatedRegistrations.size());
     for (auto& value : m_updatedRegistrations.values())
         changesToPush.uncheckedAppend(WTFMove(value));
 
     m_updatedRegistrations.clear();
-    m_database.pushChanges(WTFMove(changesToPush), WTFMove(completionHandler));
+    m_database->pushChanges(WTFMove(changesToPush), WTFMove(completionHandler));
 }
 
 void RegistrationStore::clearAll(WTF::CompletionHandler<void()>&& completionHandler)
 {
+    m_needsPushingChanges = false;
     m_updatedRegistrations.clear();
     m_databasePushTimer.stop();
-    m_database.clearAll(WTFMove(completionHandler));
+    m_database->clearAll(WTFMove(completionHandler));
 }
 
 void RegistrationStore::flushChanges(WTF::CompletionHandler<void()>&& completionHandler)
@@ -79,23 +84,55 @@ void RegistrationStore::flushChanges(WTF::CompletionHandler<void()>&& completion
     completionHandler();
 }
 
+void RegistrationStore::startSuspension(WTF::CompletionHandler<void()>&& completionHandler)
+{
+    m_isSuspended = true;
+    closeDatabase(WTFMove(completionHandler));
+}
+
+void RegistrationStore::closeDatabase(CompletionHandler<void()>&& completionHandler)
+{
+    m_database->close(WTFMove(completionHandler));
+}
+
+void RegistrationStore::endSuspension()
+{
+    m_isSuspended = false;
+    if (m_needsPushingChanges)
+        scheduleDatabasePushIfNecessary();
+}
+
 void RegistrationStore::updateRegistration(const ServiceWorkerContextData& data)
 {
+    ASSERT(isMainThread());
+    ASSERT(!data.registration.key.isEmpty());
+    if (data.registration.key.isEmpty())
+        return;
+
     m_updatedRegistrations.set(data.registration.key, data);
     scheduleDatabasePushIfNecessary();
 }
 
-void RegistrationStore::removeRegistration(SWServerRegistration& registration)
+void RegistrationStore::removeRegistration(const ServiceWorkerRegistrationKey& key)
 {
+    ASSERT(isMainThread());
+    ASSERT(!key.isEmpty());
+    if (key.isEmpty())
+        return;
+
     ServiceWorkerContextData contextData;
-    contextData.registration.key = registration.key();
-    m_updatedRegistrations.set(registration.key(), WTFMove(contextData));
+    contextData.registration.key = key;
+    m_updatedRegistrations.set(key, WTFMove(contextData));
     scheduleDatabasePushIfNecessary();
 }
 
-void RegistrationStore::addRegistrationFromDatabase(ServiceWorkerContextData&& context)
+void RegistrationStore::addRegistrationFromDatabase(ServiceWorkerContextData&& data)
 {
-    m_server.addRegistrationFromStore(WTFMove(context));
+    ASSERT(!data.registration.key.isEmpty());
+    if (data.registration.key.isEmpty())
+        return;
+
+    m_server.addRegistrationFromStore(WTFMove(data));
 }
 
 void RegistrationStore::databaseFailedToOpen()

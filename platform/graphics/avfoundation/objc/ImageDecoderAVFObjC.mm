@@ -28,12 +28,13 @@
 
 #if HAVE(AVASSETREADER)
 
-#import "AVFoundationMIMETypeCache.h"
+#import "AVAssetMIMETypeCache.h"
 #import "AffineTransform.h"
 #import "ContentType.h"
 #import "FloatQuad.h"
 #import "FloatRect.h"
 #import "FloatSize.h"
+#import "ImageRotationSessionVT.h"
 #import "Logging.h"
 #import "MIMETypeRegistry.h"
 #import "MediaSampleAVFObjC.h"
@@ -47,31 +48,17 @@
 #import <AVFoundation/AVAssetTrack.h>
 #import <AVFoundation/AVTime.h>
 #import <VideoToolbox/VTUtilities.h>
-#import <map>
 #import <pal/avfoundation/MediaTimeAVFoundation.h>
 #import <wtf/MainThread.h>
 #import <wtf/MediaTime.h>
 #import <wtf/NeverDestroyed.h>
-#import <wtf/OSObjectPtr.h>
-#import <wtf/SoftLinking.h>
+#import <wtf/Optional.h>
 #import <wtf/Vector.h>
 
-#import <pal/cf/CoreMediaSoftLink.h>
 #import "CoreVideoSoftLink.h"
 #import "VideoToolboxSoftLink.h"
-
-#pragma mark - Soft Linking
-
-SOFT_LINK_FRAMEWORK_OPTIONAL(AVFoundation)
-SOFT_LINK_CLASS_OPTIONAL(AVFoundation, AVURLAsset)
-SOFT_LINK_CLASS_OPTIONAL(AVFoundation, AVAssetReader)
-SOFT_LINK_CLASS_OPTIONAL(AVFoundation, AVAssetReaderTrackOutput)
-SOFT_LINK_POINTER_OPTIONAL(AVFoundation, AVMediaCharacteristicVisual, NSString *)
-SOFT_LINK_POINTER_OPTIONAL(AVFoundation, AVURLAssetReferenceRestrictionsKey, NSString *)
-SOFT_LINK_POINTER_OPTIONAL(AVFoundation, AVURLAssetUsesNoPersistentCacheKey, NSString *)
-#define AVMediaCharacteristicVisual getAVMediaCharacteristicVisual()
-#define AVURLAssetReferenceRestrictionsKey getAVURLAssetReferenceRestrictionsKey()
-#define AVURLAssetUsesNoPersistentCacheKey getAVURLAssetUsesNoPersistentCacheKey()
+#import <pal/cf/CoreMediaSoftLink.h>
+#import <pal/cocoa/AVFoundationSoftLink.h>
 
 #pragma mark -
 
@@ -83,6 +70,7 @@ SOFT_LINK_POINTER_OPTIONAL(AVFoundation, AVURLAssetUsesNoPersistentCacheKey, NSS
     Vector<RetainPtr<AVAssetResourceLoadingRequest>> _requests;
     Lock _dataLock;
 }
+@property (readonly) NSData* data;
 - (id)initWithParent:(WebCore::ImageDecoderAVFObjC*)parent;
 - (void)setExpectedContentSize:(long long)expectedContentSize;
 - (void)updateData:(NSData *)data complete:(BOOL)complete;
@@ -100,6 +88,11 @@ SOFT_LINK_POINTER_OPTIONAL(AVFoundation, AVURLAssetUsesNoPersistentCacheKey, NSS
     _parent = parent;
 
     return self;
+}
+
+- (NSData*)data
+{
+    return _data.get();
 }
 
 - (void)setExpectedContentSize:(long long)expectedContentSize
@@ -204,7 +197,7 @@ SOFT_LINK_POINTER_OPTIONAL(AVFoundation, AVURLAssetUsesNoPersistentCacheKey, NSS
     if ([self canFulfillRequest:loadingRequest]) {
         [self fulfillRequest:loadingRequest];
         if (loadingRequest.finished)
-            return NO;
+            return YES;
     }
 
     [self enqueueRequest:loadingRequest];
@@ -226,47 +219,19 @@ namespace WebCore {
 
 static NSURL *customSchemeURL()
 {
-    static NeverDestroyed<RetainPtr<NSURL>> url;
-    if (!url.get())
-        url.get() = adoptNS([[NSURL alloc] initWithString:@"custom-imagedecoderavfobjc://resource"]);
-
-    return url.get().get();
+    static NSURL *url = [[NSURL alloc] initWithString:@"custom-imagedecoderavfobjc://resource"];
+    return url;
 }
 
 static NSDictionary *imageDecoderAssetOptions()
 {
-    static NeverDestroyed<RetainPtr<NSDictionary>> options;
-    if (!options.get()) {
-        options.get() = @{
+    static NSDictionary *options = [] {
+        return [@{
             AVURLAssetReferenceRestrictionsKey: @(AVAssetReferenceRestrictionForbidAll),
             AVURLAssetUsesNoPersistentCacheKey: @YES,
-        };
-    }
-
-    return options.get().get();
-}
-
-static ImageDecoderAVFObjC::RotationProperties transformToRotationProperties(AffineTransform inTransform)
-{
-    ImageDecoderAVFObjC::RotationProperties rotation;
-    if (inTransform.isIdentity())
-        return rotation;
-
-    AffineTransform::DecomposedType decomposed { };
-    if (!inTransform.decompose(decomposed))
-        return rotation;
-
-    rotation.flipY = WTF::areEssentiallyEqual(decomposed.scaleX, -1.);
-    rotation.flipX = WTF::areEssentiallyEqual(decomposed.scaleY, -1.);
-    auto degrees = rad2deg(decomposed.angle);
-    while (degrees < 0)
-        degrees += 360;
-
-    // Only support rotation in multiples of 90º:
-    if (WTF::areEssentiallyEqual(fmod(degrees, 90.), 0.))
-        rotation.angle = clampToUnsigned(degrees);
-
-    return rotation;
+        } retain];
+    }();
+    return options;
 }
 
 class ImageDecoderAVFObjCSample : public MediaSampleAVFObjC {
@@ -289,6 +254,36 @@ public:
         m_hasAlpha = alphaInfo != kCGImageAlphaNone && alphaInfo != kCGImageAlphaNoneSkipLast && alphaInfo != kCGImageAlphaNoneSkipFirst;
     }
 
+    struct ByteRange {
+        size_t byteOffset { 0 };
+        size_t byteLength { 0 };
+    };
+
+    Optional<ByteRange> byteRange() const
+    {
+        if (PAL::CMSampleBufferGetDataBuffer(m_sample.get())
+            || PAL::CMSampleBufferGetImageBuffer(m_sample.get())
+            || !PAL::CMSampleBufferDataIsReady(m_sample.get()))
+            return WTF::nullopt;
+
+        CFNumberRef byteOffsetCF = (CFNumberRef)PAL::CMGetAttachment(m_sample.get(), PAL::kCMSampleBufferAttachmentKey_SampleReferenceByteOffset, nullptr);
+        if (!byteOffsetCF || CFGetTypeID(byteOffsetCF) != CFNumberGetTypeID())
+            return WTF::nullopt;
+
+        int64_t byteOffset { 0 };
+        if (!CFNumberGetValue(byteOffsetCF, kCFNumberSInt64Type, &byteOffset))
+            return WTF::nullopt;
+
+        CMItemCount sizeArrayEntries = 0;
+        PAL::CMSampleBufferGetSampleSizeArray(m_sample.get(), 0, nullptr, &sizeArrayEntries);
+        if (sizeArrayEntries != 1)
+            return WTF::nullopt;
+
+        size_t singleSizeEntry;
+        PAL::CMSampleBufferGetSampleSizeArray(m_sample.get(), 1, &singleSizeEntry, nullptr);
+        return {{static_cast<size_t>(byteOffset), singleSizeEntry}};
+    }
+
     SampleFlags flags() const override
     {
         return (SampleFlags)(MediaSampleAVFObjC::flags() | (m_hasAlpha ? HasAlpha : 0));
@@ -304,7 +299,7 @@ private:
     bool m_hasAlpha { false };
 };
 
-static ImageDecoderAVFObjCSample* toSample(PresentationOrderSampleMap::value_type pair)
+static ImageDecoderAVFObjCSample* toSample(const PresentationOrderSampleMap::value_type& pair)
 {
     return (ImageDecoderAVFObjCSample*)pair.second.get();
 }
@@ -320,7 +315,7 @@ ImageDecoderAVFObjCSample* toSample(Iterator iter)
 RefPtr<ImageDecoderAVFObjC> ImageDecoderAVFObjC::create(SharedBuffer& data, const String& mimeType, AlphaOption alphaOption, GammaAndColorProfileOption gammaAndColorProfileOption)
 {
     // AVFoundation may not be available at runtime.
-    if (!getAVURLAssetClass())
+    if (!AVAssetMIMETypeCache::singleton().isAvailable())
         return nullptr;
 
     if (!canLoad_VideoToolbox_VTCreateCGImageFromCVPixelBuffer())
@@ -333,7 +328,7 @@ ImageDecoderAVFObjC::ImageDecoderAVFObjC(SharedBuffer& data, const String& mimeT
     : ImageDecoder()
     , m_mimeType(mimeType)
     , m_uti(WebCore::UTIFromMIMEType(mimeType))
-    , m_asset(adoptNS([allocAVURLAssetInstance() initWithURL:customSchemeURL() options:imageDecoderAssetOptions()]))
+    , m_asset(adoptNS([PAL::allocAVURLAssetInstance() initWithURL:customSchemeURL() options:imageDecoderAssetOptions()]))
     , m_loader(adoptNS([[WebCoreSharedBufferResourceLoaderDelegate alloc] initWithParent:this]))
     , m_decompressionSession(WebCoreDecompressionSession::createRGB())
 {
@@ -351,24 +346,17 @@ ImageDecoderAVFObjC::~ImageDecoderAVFObjC() = default;
 
 bool ImageDecoderAVFObjC::supportsMediaType(MediaType type)
 {
-    if (type == MediaType::Video)
-        return getAVURLAssetClass() && canLoad_VideoToolbox_VTCreateCGImageFromCVPixelBuffer();
-    return false;
+    return type == MediaType::Video && AVAssetMIMETypeCache::singleton().isAvailable();
 }
 
 bool ImageDecoderAVFObjC::supportsContentType(const ContentType& type)
 {
-    if (getAVURLAssetClass() && canLoad_VideoToolbox_VTCreateCGImageFromCVPixelBuffer())
-        return AVFoundationMIMETypeCache::singleton().types().contains(type.containerType());
-    return false;
+    return AVAssetMIMETypeCache::singleton().supportsContentType(type);
 }
 
 bool ImageDecoderAVFObjC::canDecodeType(const String& mimeType)
 {
-    if (!supportsMediaType(MediaType::Video))
-        return nullptr;
-
-    return [getAVURLAssetClass() isPlayableExtendedMIMEType:mimeType];
+    return AVAssetMIMETypeCache::singleton().canDecodeType(mimeType);
 }
 
 AVAssetTrack *ImageDecoderAVFObjC::firstEnabledTrack()
@@ -391,35 +379,42 @@ void ImageDecoderAVFObjC::readSamples()
     if (!m_sampleData.empty())
         return;
 
-    auto assetReader = adoptNS([allocAVAssetReaderInstance() initWithAsset:m_asset.get() error:nil]);
-    auto assetReaderOutput = adoptNS([allocAVAssetReaderTrackOutputInstance() initWithTrack:m_track.get() outputSettings:nil]);
+    auto assetReader = adoptNS([PAL::allocAVAssetReaderInstance() initWithAsset:m_asset.get() error:nil]);
+    auto referenceOutput = adoptNS([PAL::allocAVAssetReaderSampleReferenceOutputInstance() initWithTrack:m_track.get()]);
 
-    assetReaderOutput.get().alwaysCopiesSampleData = NO;
-    [assetReader addOutput:assetReaderOutput.get()];
+    referenceOutput.get().alwaysCopiesSampleData = NO;
+    [assetReader addOutput:referenceOutput.get()];
     [assetReader startReading];
 
-    while (auto sampleBuffer = adoptCF([assetReaderOutput copyNextSampleBuffer])) {
+    while (auto sampleBuffer = adoptCF([referenceOutput copyNextSampleBuffer])) {
         // NOTE: Some samples emitted by the AVAssetReader simply denote the boundary of edits
         // and do not carry media data.
         if (!(PAL::CMSampleBufferGetNumSamples(sampleBuffer.get())))
             continue;
         m_sampleData.addSample(ImageDecoderAVFObjCSample::create(WTFMove(sampleBuffer)).get());
     }
+
+    if (m_encodedDataStatusChangedCallback)
+        m_encodedDataStatusChangedCallback(encodedDataStatus());
 }
 
 void ImageDecoderAVFObjC::readTrackMetadata()
 {
-    if (!m_rotation)
-        m_rotation = transformToRotationProperties(CGAffineTransformConcat(m_asset.get().preferredTransform, m_track.get().preferredTransform));
-
-    if (!m_size) {
-        auto size = FloatSize(m_track.get().naturalSize);
-        auto angle = m_rotation.value().angle;
-        if (angle == 90 || angle == 270)
-            size = size.transposedSize();
-
-        m_size = expandedIntSize(size);
+    AffineTransform finalTransform = CGAffineTransformConcat(m_asset.get().preferredTransform, m_track.get().preferredTransform);
+    auto size = expandedIntSize(FloatSize(m_track.get().naturalSize));
+    if (finalTransform.isIdentity()) {
+        m_size = size;
+        m_imageRotationSession = nullptr;
+        return;
     }
+
+    if (!m_imageRotationSession
+        || !m_imageRotationSession->transform()
+        || m_imageRotationSession->transform().value() != finalTransform
+        || m_imageRotationSession->size() != size)
+        m_imageRotationSession = std::make_unique<ImageRotationSessionVT>(WTFMove(finalTransform), size, kCVPixelFormatType_32BGRA, ImageRotationSessionVT::IsCGImageCompatible::Yes);
+
+    m_size = expandedIntSize(m_imageRotationSession->rotatedSize());
 }
 
 bool ImageDecoderAVFObjC::storeSampleBuffer(CMSampleBufferRef sampleBuffer)
@@ -433,38 +428,8 @@ bool ImageDecoderAVFObjC::storeSampleBuffer(CMSampleBufferRef sampleBuffer)
     auto presentationTime = PAL::toMediaTime(PAL::CMSampleBufferGetPresentationTimeStamp(sampleBuffer));
     auto iter = m_sampleData.presentationOrder().findSampleWithPresentationTime(presentationTime);
 
-    if (m_rotation && !m_rotation.value().isIdentity()) {
-        auto& rotation = m_rotation.value();
-        if (!m_rotationSession) {
-            VTImageRotationSessionRef rawRotationSession = nullptr;
-            VTImageRotationSessionCreate(kCFAllocatorDefault, rotation.angle, &rawRotationSession);
-            m_rotationSession = rawRotationSession;
-            VTImageRotationSessionSetProperty(m_rotationSession.get(), kVTImageRotationPropertyKey_EnableHighSpeedTransfer, kCFBooleanTrue);
-
-            if (rotation.flipY)
-                VTImageRotationSessionSetProperty(m_rotationSession.get(), kVTImageRotationPropertyKey_FlipVerticalOrientation, kCFBooleanTrue);
-            if (rotation.flipX)
-                VTImageRotationSessionSetProperty(m_rotationSession.get(), kVTImageRotationPropertyKey_FlipHorizontalOrientation, kCFBooleanTrue);
-        }
-
-        if (!m_rotationPool) {
-            auto pixelAttributes = (CFDictionaryRef)@{
-                (NSString *)kCVPixelBufferWidthKey: @(m_size.value().width()),
-                (NSString *)kCVPixelBufferHeightKey: @(m_size.value().height()),
-                (NSString *)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
-                (NSString *)kCVPixelBufferCGImageCompatibilityKey: @YES,
-            };
-            CVPixelBufferPoolRef rawPool = nullptr;
-            CVPixelBufferPoolCreate(kCFAllocatorDefault, nullptr, pixelAttributes, &rawPool);
-            m_rotationPool = adoptCF(rawPool);
-        }
-
-        CVPixelBufferRef rawRotatedBuffer = nullptr;
-        CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, m_rotationPool.get(), &rawRotatedBuffer);
-        auto status = VTImageRotationSessionTransferImage(m_rotationSession.get(), pixelBuffer.get(), rawRotatedBuffer);
-        if (status == noErr)
-            pixelBuffer = adoptCF(rawRotatedBuffer);
-    }
+    if (m_imageRotationSession)
+        pixelBuffer = m_imageRotationSession->rotate(pixelBuffer.get());
 
     CGImageRef rawImage = nullptr;
     if (noErr != VTCreateCGImageFromCVPixelBuffer(pixelBuffer.get(), nullptr, &rawImage)) {
@@ -493,9 +458,8 @@ void ImageDecoderAVFObjC::setTrack(AVAssetTrack *track)
     LockHolder holder { m_sampleGeneratorLock };
     m_sampleData.clear();
     m_size.reset();
-    m_rotation.reset();
     m_cursor = m_sampleData.decodeOrder().end();
-    m_rotationSession = nullptr;
+    m_imageRotationSession = nullptr;
 
     [track loadValuesAsynchronouslyForKeys:@[@"naturalSize", @"preferredTransform"] completionHandler:[protectedThis = makeRefPtr(this)] () mutable {
         callOnMainThread([protectedThis = WTFMove(protectedThis)] {
@@ -505,11 +469,20 @@ void ImageDecoderAVFObjC::setTrack(AVAssetTrack *track)
     }];
 }
 
+void ImageDecoderAVFObjC::setEncodedDataStatusChangeCallback(WTF::Function<void(EncodedDataStatus)>&& callback)
+{
+    m_encodedDataStatusChangedCallback = WTFMove(callback);
+}
+
 EncodedDataStatus ImageDecoderAVFObjC::encodedDataStatus() const
 {
-    if (m_sampleData.empty())
-        return EncodedDataStatus::Unknown;
-    return EncodedDataStatus::Complete;
+    if (!m_sampleData.empty())
+        return EncodedDataStatus::Complete;
+    if (m_size)
+        return EncodedDataStatus::SizeAvailable;
+    if (m_track)
+        return EncodedDataStatus::TypeAvailable;
+    return EncodedDataStatus::Unknown;
 }
 
 IntSize ImageDecoderAVFObjC::size() const
@@ -553,7 +526,7 @@ bool ImageDecoderAVFObjC::frameIsCompleteAtIndex(size_t index) const
     if (!sampleData)
         return false;
 
-    return PAL::CMSampleBufferDataIsReady(sampleData->sampleBuffer());
+    return sampleIsComplete(*sampleData);
 }
 
 ImageOrientation ImageDecoderAVFObjC::frameOrientationAtIndex(size_t) const
@@ -620,11 +593,44 @@ NativeImagePtr ImageDecoderAVFObjC::createFrameImageAtIndex(size_t index, Subsam
         if (decodeTime < m_cursor->second->decodeTime())
             return nullptr;
 
-        auto cursorSample = toSample(m_cursor)->sampleBuffer();
+        auto cursorSample = toSample(m_cursor);
         if (!cursorSample)
+            return nullptr;
+
+        if (!sampleIsComplete(*cursorSample))
+            return nullptr;
+
+        if (auto byteRange = cursorSample->byteRange()) {
+            auto& byteRangeValue = byteRange.value();
+            auto* data = m_loader.get().data;
+            CMBlockBufferCustomBlockSource source {
+                0,
+                nullptr,
+                [](void* refcon, void*, size_t) {
+                    [(id)refcon release];
+                },
+                [data retain]
+            };
+            CMBlockBufferRef rawBlockBuffer = nullptr;
+            if (noErr != PAL::CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault, const_cast<void*>(data.bytes), data.length, nullptr, &source, byteRangeValue.byteOffset, byteRangeValue.byteLength, 0, &rawBlockBuffer))
+                return nullptr;
+
+            if (!rawBlockBuffer)
+                return nullptr;
+
+            if (noErr != PAL::CMSampleBufferSetDataBuffer(cursorSample->sampleBuffer(), rawBlockBuffer))
+                return nullptr;
+            CFRelease(rawBlockBuffer);
+
+            PAL::CMRemoveAttachment(cursorSample->sampleBuffer(), PAL::kCMSampleBufferAttachmentKey_SampleReferenceByteOffset);
+            PAL::CMRemoveAttachment(cursorSample->sampleBuffer(), PAL::kCMSampleBufferAttachmentKey_SampleReferenceURL);
+        }
+
+        auto cursorSampleBuffer = cursorSample->sampleBuffer();
+        if (!cursorSampleBuffer)
             break;
 
-        if (!storeSampleBuffer(cursorSample))
+        if (!storeSampleBuffer(cursorSampleBuffer))
             break;
 
         advanceCursor();
@@ -671,7 +677,7 @@ void ImageDecoderAVFObjC::clearFrameBufferCache(size_t index)
 
 const ImageDecoderAVFObjCSample* ImageDecoderAVFObjC::sampleAtIndex(size_t index) const
 {
-    if (index >= m_sampleData.size())
+    if (index >= m_sampleData.presentationOrder().size())
         return nullptr;
 
     // FIXME: std::map is not random-accessible; this can get expensive if callers repeatedly call
@@ -680,8 +686,18 @@ const ImageDecoderAVFObjCSample* ImageDecoderAVFObjC::sampleAtIndex(size_t index
     auto iter = m_sampleData.presentationOrder().begin();
     for (size_t i = 0; i != index; ++i)
         ++iter;
-    
+
     return toSample(iter);
+}
+
+bool ImageDecoderAVFObjC::sampleIsComplete(const ImageDecoderAVFObjCSample& sample) const
+{
+    if (auto byteRange = sample.byteRange()) {
+        auto& byteRangeValue = byteRange.value();
+        return byteRangeValue.byteOffset + byteRangeValue.byteLength <= m_loader.get().data.length;
+    }
+
+    return PAL::CMSampleBufferDataIsReady(sample.sampleBuffer());
 }
 
 }

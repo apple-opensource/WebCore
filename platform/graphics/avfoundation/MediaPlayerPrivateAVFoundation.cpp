@@ -29,6 +29,7 @@
 
 #include "MediaPlayerPrivateAVFoundation.h"
 
+#include "CustomHeaderFields.h"
 #include "DeprecatedGlobalSettings.h"
 #include "DocumentLoader.h"
 #include "FloatConversion.h"
@@ -39,22 +40,23 @@
 #include "PlatformLayer.h"
 #include "PlatformTimeRanges.h"
 #include "Settings.h"
-#include "URL.h"
 #include <CoreMedia/CoreMedia.h>
-#include <heap/HeapInlines.h>
-#include <runtime/DataView.h>
-#include <runtime/TypedArrayInlines.h>
-#include <runtime/Uint16Array.h>
+#include <JavaScriptCore/DataView.h>
+#include <JavaScriptCore/HeapInlines.h>
+#include <JavaScriptCore/TypedArrayInlines.h>
+#include <JavaScriptCore/Uint16Array.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/SoftLinking.h>
 #include <wtf/StringPrintStream.h>
+#include <wtf/URL.h>
 #include <wtf/text/CString.h>
 
 namespace WebCore {
 
 MediaPlayerPrivateAVFoundation::MediaPlayerPrivateAVFoundation(MediaPlayer* player)
-    : m_player(player)
+    : m_weakThis(makeWeakPtr(*this))
+    , m_player(player)
     , m_queuedNotifications()
     , m_queueMutex()
     , m_networkState(MediaPlayer::Empty)
@@ -79,7 +81,6 @@ MediaPlayerPrivateAVFoundation::MediaPlayerPrivateAVFoundation(MediaPlayer* play
     , m_cachedHasCaptions(false)
     , m_ignoreLoadStateChanges(false)
     , m_haveReportedFirstVideoFrame(false)
-    , m_playWhenFramesAvailable(false)
     , m_inbandTrackConfigurationPending(false)
     , m_characteristicsChanged(false)
     , m_shouldMaintainAspectRatio(true)
@@ -171,7 +172,7 @@ void MediaPlayerPrivateAVFoundation::load(const String& url)
     setNetworkState(m_preload == MediaPlayer::None ? MediaPlayer::Idle : MediaPlayer::Loading);
     setReadyState(MediaPlayer::HaveNothing);
 
-    m_assetURL = URL(ParsedURLString, url);
+    m_assetURL = URL({ }, url);
     m_requestedOrigin = SecurityOrigin::create(m_assetURL);
 
     // Don't do any more work if the url is empty.
@@ -216,21 +217,12 @@ void MediaPlayerPrivateAVFoundation::prepareToPlay()
 void MediaPlayerPrivateAVFoundation::play()
 {
     ALWAYS_LOG(LOGIDENTIFIER);
-
-    // If the file has video, don't request playback until the first frame of video is ready to display
-    // or the audio may start playing before we can render video.
-    if (!m_cachedHasVideo || hasAvailableVideoFrame())
-        platformPlay();
-    else {
-        INFO_LOG(LOGIDENTIFIER, "waiting for first video frame");
-        m_playWhenFramesAvailable = true;
-    }
+    platformPlay();
 }
 
 void MediaPlayerPrivateAVFoundation::pause()
 {
     ALWAYS_LOG(LOGIDENTIFIER);
-    m_playWhenFramesAvailable = false;
     platformPause();
 }
 
@@ -285,7 +277,7 @@ bool MediaPlayerPrivateAVFoundation::paused() const
     if (!metaDataAvailable())
         return true;
 
-    return rate() == 0;
+    return platformPaused();
 }
 
 bool MediaPlayerPrivateAVFoundation::seeking() const
@@ -470,7 +462,7 @@ bool MediaPlayerPrivateAVFoundation::supportsFullscreen() const
     return true;
 #else
     // FIXME: WebVideoFullscreenController assumes a QTKit/QuickTime media engine
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     if (DeprecatedGlobalSettings::avKitEnabled())
         return true;
 #endif
@@ -579,11 +571,6 @@ void MediaPlayerPrivateAVFoundation::updateStates()
 
     setNetworkState(newNetworkState);
     setReadyState(newReadyState);
-
-    if (m_playWhenFramesAvailable && hasAvailableVideoFrame()) {
-        m_playWhenFramesAvailable = false;
-        platformPlay();
-    }
 }
 
 void MediaPlayerPrivateAVFoundation::setSize(const IntSize&) 
@@ -626,17 +613,6 @@ void MediaPlayerPrivateAVFoundation::metadataLoaded()
 
 void MediaPlayerPrivateAVFoundation::rateChanged()
 {
-
-#if ENABLE(WIRELESS_PLAYBACK_TARGET) && PLATFORM(IOS)
-    if (isCurrentPlaybackTargetWireless() && playerItemStatus() >= MediaPlayerAVPlayerItemStatusPlaybackBufferFull) {
-        double rate = this->rate();
-        if (rate != requestedRate()) {
-            m_player->handlePlaybackCommand(rate ? PlatformMediaSession::PlayCommand : PlatformMediaSession::PauseCommand);
-            return;
-        }
-    }
-#endif
-
     m_player->rateChanged();
 }
 
@@ -799,7 +775,7 @@ void MediaPlayerPrivateAVFoundation::scheduleMainThreadNotification(Notification
     if (delayDispatch && !m_mainThreadCallPending) {
         m_mainThreadCallPending = true;
 
-        callOnMainThread([weakThis = createWeakPtr()] {
+        callOnMainThread([weakThis = m_weakThis] {
             if (!weakThis)
                 return;
 
@@ -832,7 +808,7 @@ void MediaPlayerPrivateAVFoundation::dispatchNotification()
         }
         
         if (!m_queuedNotifications.isEmpty() && !m_mainThreadCallPending) {
-            callOnMainThread([weakThis = createWeakPtr()] {
+            callOnMainThread([weakThis = m_weakThis] {
                 if (!weakThis)
                     return;
 
@@ -1014,7 +990,7 @@ bool MediaPlayerPrivateAVFoundation::extractKeyURIKeyIDAndCertificateFromInitDat
     RefPtr<ArrayBuffer> initDataBuffer = initData->unsharedBuffer();
 
     // Use a DataView to read uint32 values from the buffer, as Uint32Array requires the reads be aligned on 4-byte boundaries. 
-    RefPtr<JSC::DataView> initDataView = JSC::DataView::create(initDataBuffer.copyRef(), 0, initDataBuffer->byteLength());
+    auto initDataView = JSC::DataView::create(initDataBuffer.copyRef(), 0, initDataBuffer->byteLength());
     uint32_t offset = 0;
     bool status = true;
 
@@ -1023,7 +999,7 @@ bool MediaPlayerPrivateAVFoundation::extractKeyURIKeyIDAndCertificateFromInitDat
     if (!status || offset + keyURILength > initData->length())
         return false;
 
-    RefPtr<Uint16Array> keyURIArray = Uint16Array::create(initDataBuffer.copyRef(), offset, keyURILength);
+    auto keyURIArray = Uint16Array::tryCreate(initDataBuffer.copyRef(), offset, keyURILength);
     if (!keyURIArray)
         return false;
 
@@ -1035,7 +1011,7 @@ bool MediaPlayerPrivateAVFoundation::extractKeyURIKeyIDAndCertificateFromInitDat
     if (!status || offset + keyIDLength > initData->length())
         return false;
 
-    RefPtr<Uint8Array> keyIDArray = Uint8Array::create(initDataBuffer.copyRef(), offset, keyIDLength);
+    auto keyIDArray = Uint8Array::tryCreate(initDataBuffer.copyRef(), offset, keyIDLength);
     if (!keyIDArray)
         return false;
 
@@ -1047,7 +1023,7 @@ bool MediaPlayerPrivateAVFoundation::extractKeyURIKeyIDAndCertificateFromInitDat
     if (!status || offset + certificateLength > initData->length())
         return false;
 
-    certificate = Uint8Array::create(WTFMove(initDataBuffer), offset, certificateLength);
+    certificate = Uint8Array::tryCreate(WTFMove(initDataBuffer), offset, certificateLength);
     if (!certificate)
         return false;
 

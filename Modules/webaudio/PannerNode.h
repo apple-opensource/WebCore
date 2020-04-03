@@ -47,7 +47,8 @@ namespace WebCore {
 // A cone effect will attenuate the gain as the orientation moves away from the listener.
 // All of these effects follow the OpenAL specification very closely.
 
-class PannerNode : public AudioNode {
+class PannerNode final : public AudioNode {
+    WTF_MAKE_ISO_ALLOCATED(PannerNode);
 public:
     static Ref<PannerNode> create(AudioContext& context, float sampleRate)
     {

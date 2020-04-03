@@ -38,10 +38,11 @@
 #include "Document.h"
 #include "FontVariantBuilder.h"
 #include "JSFontFace.h"
+#include "Quirks.h"
 #include "StyleProperties.h"
-#include <runtime/ArrayBuffer.h>
-#include <runtime/ArrayBufferView.h>
-#include <runtime/JSCInlines.h>
+#include <JavaScriptCore/ArrayBuffer.h>
+#include <JavaScriptCore/ArrayBufferView.h>
+#include <JavaScriptCore/JSCInlines.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
@@ -59,7 +60,7 @@ ExceptionOr<Ref<FontFace>> FontFace::create(Document& document, const String& fa
 
     bool dataRequiresAsynchronousLoading = true;
 
-    auto setFamilyResult = result->setFamily(family);
+    auto setFamilyResult = result->setFamily(document, family);
     if (setFamilyResult.hasException())
         return setFamilyResult.releaseException();
 
@@ -78,7 +79,7 @@ ExceptionOr<Ref<FontFace>> FontFace::create(Document& document, const String& fa
         [&] (RefPtr<ArrayBuffer>& arrayBuffer) -> ExceptionOr<void> {
             unsigned byteLength = arrayBuffer->byteLength();
             auto arrayBufferView = JSC::Uint8Array::create(WTFMove(arrayBuffer), 0, byteLength);
-            dataRequiresAsynchronousLoading = populateFontFaceWithArrayBuffer(result->backing(), arrayBufferView.releaseNonNull());
+            dataRequiresAsynchronousLoading = populateFontFaceWithArrayBuffer(result->backing(), WTFMove(arrayBufferView));
             return { };
         }
     );
@@ -87,25 +88,25 @@ ExceptionOr<Ref<FontFace>> FontFace::create(Document& document, const String& fa
         return sourceConversionResult.releaseException();
 
     // These ternaries match the default strings inside the FontFaceDescriptors dictionary inside FontFace.idl.
-    auto setStyleResult = result->setStyle(descriptors.style.isEmpty() ? ASCIILiteral("normal") : descriptors.style);
+    auto setStyleResult = result->setStyle(descriptors.style.isEmpty() ? "normal"_s : descriptors.style);
     if (setStyleResult.hasException())
         return setStyleResult.releaseException();
-    auto setWeightResult = result->setWeight(descriptors.weight.isEmpty() ? ASCIILiteral("normal") : descriptors.weight);
+    auto setWeightResult = result->setWeight(descriptors.weight.isEmpty() ? "normal"_s : descriptors.weight);
     if (setWeightResult.hasException())
         return setWeightResult.releaseException();
-    auto setStretchResult = result->setStretch(descriptors.stretch.isEmpty() ? ASCIILiteral("normal") : descriptors.stretch);
+    auto setStretchResult = result->setStretch(descriptors.stretch.isEmpty() ? "normal"_s : descriptors.stretch);
     if (setStretchResult.hasException())
         return setStretchResult.releaseException();
-    auto setUnicodeRangeResult = result->setUnicodeRange(descriptors.unicodeRange.isEmpty() ? ASCIILiteral("U+0-10FFFF") : descriptors.unicodeRange);
+    auto setUnicodeRangeResult = result->setUnicodeRange(descriptors.unicodeRange.isEmpty() ? "U+0-10FFFF"_s : descriptors.unicodeRange);
     if (setUnicodeRangeResult.hasException())
         return setUnicodeRangeResult.releaseException();
-    auto setVariantResult = result->setVariant(descriptors.variant.isEmpty() ? ASCIILiteral("normal") : descriptors.variant);
+    auto setVariantResult = result->setVariant(descriptors.variant.isEmpty() ? "normal"_s : descriptors.variant);
     if (setVariantResult.hasException())
         return setVariantResult.releaseException();
-    auto setFeatureSettingsResult = result->setFeatureSettings(descriptors.featureSettings.isEmpty() ? ASCIILiteral("normal") : descriptors.featureSettings);
+    auto setFeatureSettingsResult = result->setFeatureSettings(descriptors.featureSettings.isEmpty() ? "normal"_s : descriptors.featureSettings);
     if (setFeatureSettingsResult.hasException())
         return setFeatureSettingsResult.releaseException();
-    auto setDisplayResult = result->setDisplay(descriptors.display.isEmpty() ? ASCIILiteral("auto") : descriptors.display);
+    auto setDisplayResult = result->setDisplay(descriptors.display.isEmpty() ? "auto"_s : descriptors.display);
     if (setDisplayResult.hasException())
         return setDisplayResult.releaseException();
 
@@ -115,7 +116,7 @@ ExceptionOr<Ref<FontFace>> FontFace::create(Document& document, const String& fa
         ASSERT_UNUSED(status, status == CSSFontFace::Status::Success || status == CSSFontFace::Status::Failure);
     }
 
-    return WTFMove(result);
+    return result;
 }
 
 Ref<FontFace> FontFace::create(CSSFontFace& face)
@@ -142,25 +143,26 @@ FontFace::~FontFace()
     m_backing->removeClient(*this);
 }
 
-WeakPtr<FontFace> FontFace::createWeakPtr()
-{
-    return m_weakPtrFactory.createWeakPtr(*this);
-}
-
 RefPtr<CSSValue> FontFace::parseString(const String& string, CSSPropertyID propertyID)
 {
     // FIXME: Should use the Document to get the right parsing mode.
     return CSSParser::parseFontFaceDescriptor(propertyID, string, HTMLStandardMode);
 }
 
-ExceptionOr<void> FontFace::setFamily(const String& family)
+ExceptionOr<void> FontFace::setFamily(Document& document, const String& family)
 {
     if (family.isEmpty())
         return Exception { SyntaxError };
 
-    bool success = false;
-    if (auto value = parseString(family, CSSPropertyFontFamily))
-        success = m_backing->setFamilies(*value);
+    String familyNameToUse = family;
+    if (familyNameToUse.contains('\'') && document.quirks().shouldStripQuotationMarkInFontFaceSetFamily())
+        familyNameToUse = family.removeCharacters([](auto character) { return character == '\''; });
+
+    // FIXME: https://bugs.webkit.org/show_bug.cgi?id=196381 Don't use a list here.
+    // See consumeFontFamilyDescriptor() in CSSPropertyParser.cpp for why we're using it.
+    auto list = CSSValueList::createCommaSeparated();
+    list->append(CSSValuePool::singleton().createFontFamilyValue(familyNameToUse));
+    bool success = m_backing->setFamilies(list);
     if (!success)
         return Exception { SyntaxError };
     return { };
@@ -298,6 +300,21 @@ ExceptionOr<void> FontFace::setDisplay(const String& display)
 String FontFace::family() const
 {
     m_backing->updateStyleIfNeeded();
+
+    // FIXME: https://bugs.webkit.org/show_bug.cgi?id=196381 This is only here because CSSFontFace erroneously uses a list of values instead of a single value.
+    // See consumeFontFamilyDescriptor() in CSSPropertyParser.cpp.
+    if (m_backing->families()->length() == 1) {
+        if (m_backing->families()->item(0)) {
+            auto& item = *m_backing->families()->item(0);
+            if (item.isPrimitiveValue()) {
+                auto& primitiveValue = downcast<CSSPrimitiveValue>(item);
+                if (primitiveValue.isFontFamily()) {
+                    auto& fontFamily = primitiveValue.fontFamily();
+                    return fontFamily.familyName;
+                }
+            }
+        }
+    }
     return m_backing->families()->cssText();
 }
 
@@ -377,8 +394,8 @@ String FontFace::unicodeRange() const
 {
     m_backing->updateStyleIfNeeded();
     if (!m_backing->ranges().size())
-        return ASCIILiteral("U+0-10FFFF");
-    RefPtr<CSSValueList> values = CSSValueList::createCommaSeparated();
+        return "U+0-10FFFF"_s;
+    auto values = CSSValueList::createCommaSeparated();
     for (auto& range : m_backing->ranges())
         values->append(CSSUnicodeRangeValue::create(range.from, range.to));
     return values->cssText();
@@ -394,8 +411,8 @@ String FontFace::featureSettings() const
 {
     m_backing->updateStyleIfNeeded();
     if (!m_backing->featureSettings().size())
-        return ASCIILiteral("normal");
-    RefPtr<CSSValueList> list = CSSValueList::createCommaSeparated();
+        return "normal"_s;
+    auto list = CSSValueList::createCommaSeparated();
     for (auto& feature : m_backing->featureSettings())
         list->append(CSSFontFeatureValue::create(FontTag(feature.tag()), feature.value()));
     return list->cssText();

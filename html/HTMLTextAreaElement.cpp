@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2004-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2019 Apple Inc. All rights reserved.
  *           (C) 2006 Alexey Proskuryakov (ap@nypop.com)
  * Copyright (C) 2007 Samuel Weinig (sam@webkit.org)
  *
@@ -46,10 +46,13 @@
 #include "TextControlInnerElements.h"
 #include "TextIterator.h"
 #include "TextNodeTraversal.h"
+#include <wtf/IsoMallocInlines.h>
 #include <wtf/Ref.h>
 #include <wtf/StdLibExtras.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLTextAreaElement);
 
 using namespace HTMLNames;
 
@@ -106,9 +109,9 @@ void HTMLTextAreaElement::didAddUserAgentShadowRoot(ShadowRoot& root)
     updateInnerTextElementEditability();
 }
 
-const AtomicString& HTMLTextAreaElement::formControlType() const
+const AtomString& HTMLTextAreaElement::formControlType() const
 {
-    static NeverDestroyed<const AtomicString> textarea("textarea", AtomicString::ConstructFromLiteral);
+    static NeverDestroyed<const AtomString> textarea("textarea", AtomString::ConstructFromLiteral);
     return textarea;
 }
 
@@ -145,7 +148,7 @@ bool HTMLTextAreaElement::isPresentationAttribute(const QualifiedName& name) con
     return HTMLTextFormControlElement::isPresentationAttribute(name);
 }
 
-void HTMLTextAreaElement::collectStyleForPresentationAttribute(const QualifiedName& name, const AtomicString& value, MutableStyleProperties& style)
+void HTMLTextAreaElement::collectStyleForPresentationAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
     if (name == wrapAttr) {
         if (shouldWrapText()) {
@@ -159,7 +162,7 @@ void HTMLTextAreaElement::collectStyleForPresentationAttribute(const QualifiedNa
         HTMLTextFormControlElement::collectStyleForPresentationAttribute(name, value, style);
 }
 
-void HTMLTextAreaElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
+void HTMLTextAreaElement::parseAttribute(const QualifiedName& name, const AtomString& value)
 {
     if (name == rowsAttr) {
         unsigned rows = limitToOnlyHTMLNonNegativeNumbersGreaterThanZero(value, defaultRows);
@@ -190,8 +193,6 @@ void HTMLTextAreaElement::parseAttribute(const QualifiedName& name, const Atomic
             if (renderer())
                 renderer()->setNeedsLayoutAndPrefWidthsRecalc();
         }
-    } else if (name == accesskeyAttr) {
-        // ignore for the moment
     } else if (name == maxlengthAttr)
         maxLengthAttributeChanged(value);
     else if (name == minlengthAttr)
@@ -200,13 +201,13 @@ void HTMLTextAreaElement::parseAttribute(const QualifiedName& name, const Atomic
         HTMLTextFormControlElement::parseAttribute(name, value);
 }
 
-void HTMLTextAreaElement::maxLengthAttributeChanged(const AtomicString& newValue)
+void HTMLTextAreaElement::maxLengthAttributeChanged(const AtomString& newValue)
 {
     internalSetMaxLength(parseHTMLNonNegativeInteger(newValue).value_or(-1));
     updateValidity();
 }
 
-void HTMLTextAreaElement::minLengthAttributeChanged(const AtomicString& newValue)
+void HTMLTextAreaElement::minLengthAttributeChanged(const AtomString& newValue)
 {
     internalSetMinLength(parseHTMLNonNegativeInteger(newValue).value_or(-1));
     updateValidity();
@@ -222,6 +223,7 @@ bool HTMLTextAreaElement::appendFormData(DOMFormData& formData, bool)
     if (name().isEmpty())
         return false;
 
+    Ref<HTMLTextAreaElement> protectedThis(*this);
     document().updateLayout();
 
     formData.append(name(), m_wrap == HardWrap ? valueWithHardLineBreaks() : value());
@@ -243,7 +245,7 @@ bool HTMLTextAreaElement::hasCustomFocusLogic() const
     return true;
 }
 
-bool HTMLTextAreaElement::isKeyboardFocusable(KeyboardEvent&) const
+bool HTMLTextAreaElement::isKeyboardFocusable(KeyboardEvent*) const
 {
     // If a given text area can be focused at all, then it will always be keyboard focusable.
     return isFocusable();
@@ -260,12 +262,9 @@ void HTMLTextAreaElement::updateFocusAppearance(SelectionRestorationMode restora
         // If this is the first focus, set a caret at the beginning of the text.  
         // This matches some browsers' behavior; see bug 11746 Comment #15.
         // http://bugs.webkit.org/show_bug.cgi?id=11746#c15
-        setSelectionRange(0, 0, SelectionHasNoDirection, Element::defaultFocusTextStateChangeIntent());
+        setSelectionRange(0, 0, SelectionHasNoDirection, revealMode, Element::defaultFocusTextStateChangeIntent());
     } else
-        restoreCachedSelection(Element::defaultFocusTextStateChangeIntent());
-
-    if (document().frame())
-        document().frame()->selection().revealSelection(revealMode);
+        restoreCachedSelection(revealMode, Element::defaultFocusTextStateChangeIntent());
 }
 
 void HTMLTextAreaElement::defaultEventHandler(Event& event)
@@ -322,7 +321,7 @@ void HTMLTextAreaElement::handleBeforeTextInsertedEvent(BeforeTextInsertedEvent&
 
 String HTMLTextAreaElement::sanitizeUserInputValue(const String& proposedValue, unsigned maxLength)
 {
-    return proposedValue.left(numCharactersInGraphemeClusters(proposedValue, maxLength));
+    return proposedValue.left(numCodeUnitsInGraphemeClusters(proposedValue, maxLength));
 }
 
 RefPtr<TextControlInnerTextElement> HTMLTextAreaElement::innerTextElement() const
@@ -551,14 +550,7 @@ RenderStyle HTMLTextAreaElement::createInnerTextStyle(const RenderStyle& style)
     auto textBlockStyle = RenderStyle::create();
     textBlockStyle.inheritFrom(style);
     adjustInnerTextStyle(style, textBlockStyle);
-    textBlockStyle.setDisplay(BLOCK);
-
-#if PLATFORM(IOS)
-    // We're adding three extra pixels of padding to line textareas up with text fields.  
-    textBlockStyle.setPaddingLeft(Length(3, Fixed));
-    textBlockStyle.setPaddingRight(Length(3, Fixed));
-#endif
-
+    textBlockStyle.setDisplay(DisplayType::Block);
     return textBlockStyle;
 }
 

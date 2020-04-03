@@ -63,7 +63,7 @@ struct ScopedFramePaintingState {
 
     const Frame& frame;
     const Node* node;
-    const PaintBehavior paintBehavior;
+    const OptionSet<PaintBehavior> paintBehavior;
     const Color backgroundColor;
 };
 
@@ -90,15 +90,15 @@ std::unique_ptr<ImageBuffer> snapshotFrameRectWithClip(Frame& frame, const IntRe
 
     ScopedFramePaintingState state(frame, nullptr);
 
-    PaintBehavior paintBehavior = state.paintBehavior;
+    auto paintBehavior = state.paintBehavior;
     if (options & SnapshotOptionsForceBlackText)
-        paintBehavior |= PaintBehaviorForceBlackText;
+        paintBehavior.add(PaintBehavior::ForceBlackText);
     if (options & SnapshotOptionsPaintSelectionOnly)
-        paintBehavior |= PaintBehaviorSelectionOnly;
+        paintBehavior.add(PaintBehavior::SelectionOnly);
     if (options & SnapshotOptionsPaintSelectionAndBackgroundsOnly)
-        paintBehavior |= PaintBehaviorSelectionAndBackgroundsOnly;
+        paintBehavior.add(PaintBehavior::SelectionAndBackgroundsOnly);
     if (options & SnapshotOptionsPaintEverythingExcludingSelection)
-        paintBehavior |= PaintBehaviorExcludeSelection;
+        paintBehavior.add(PaintBehavior::ExcludeSelection);
 
     // Other paint behaviors are set by paintContentsForSnapshot.
     frame.view()->setPaintBehavior(paintBehavior);
@@ -108,6 +108,9 @@ std::unique_ptr<ImageBuffer> snapshotFrameRectWithClip(Frame& frame, const IntRe
     if (frame.settings().delegatesPageScaling())
         scaleFactor *= frame.page()->pageScaleFactor();
 
+    if (options & SnapshotOptionsPaintWithIntegralScaleFactor)
+        scaleFactor = ceilf(scaleFactor);
+
     std::unique_ptr<ImageBuffer> buffer = ImageBuffer::create(imageRect.size(), Unaccelerated, scaleFactor);
     if (!buffer)
         return nullptr;
@@ -116,7 +119,7 @@ std::unique_ptr<ImageBuffer> snapshotFrameRectWithClip(Frame& frame, const IntRe
     if (!clipRects.isEmpty()) {
         Path clipPath;
         for (auto& rect : clipRects)
-            clipPath.addRect(rect);
+            clipPath.addRect(encloseRectToDevicePixels(rect, scaleFactor));
         buffer->context().clipPath(clipPath);
     }
 

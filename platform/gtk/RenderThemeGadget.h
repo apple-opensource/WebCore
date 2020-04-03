@@ -25,12 +25,9 @@
 
 #pragma once
 
-#include <gtk/gtk.h>
-
-#if GTK_CHECK_VERSION(3, 20, 0)
-
 #include "Color.h"
 #include "IntSize.h"
+#include <gtk/gtk.h>
 #include <wtf/OptionSet.h>
 #include <wtf/Vector.h>
 #include <wtf/glib/GRefPtr.h>
@@ -50,7 +47,8 @@ public:
         Radio,
         Arrow,
         Icon,
-        Scrollbar
+        Scrollbar,
+        Button
     };
 
     struct Info {
@@ -169,6 +167,11 @@ private:
     OptionSet<Steppers> m_steppers;
 };
 
-} // namespace WebCore
+class RenderThemeButtonGadget final : public RenderThemeGadget {
+public:
+    RenderThemeButtonGadget(const Info&, RenderThemeGadget* parent, const Vector<RenderThemeGadget::Info> siblings, unsigned position);
 
-#endif // GTK_CHECK_VERSION(3, 20, 0)
+    IntSize minimumSize() const override;
+};
+
+} // namespace WebCore

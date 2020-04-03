@@ -36,49 +36,39 @@
 #include "CSSFontSelector.h"
 #include "CSSParser.h"
 #include "CSSPropertyNames.h"
-#include "FloatQuad.h"
-#include "HTMLImageElement.h"
-#include "HTMLVideoElement.h"
-#include "ImageBitmap.h"
 #include "ImageBuffer.h"
 #include "ImageData.h"
 #include "InspectorInstrumentation.h"
 #include "Path2D.h"
-#include "RenderElement.h"
-#include "RenderImage.h"
-#include "RenderLayer.h"
 #include "RenderTheme.h"
-#include "SecurityOrigin.h"
-#include "StrokeStyleApplier.h"
+#include "ResourceLoadObserver.h"
+#include "RuntimeEnabledFeatures.h"
 #include "StyleProperties.h"
 #include "StyleResolver.h"
 #include "TextMetrics.h"
 #include "TextRun.h"
 #include <wtf/CheckedArithmetic.h>
+#include <wtf/IsoMallocInlines.h>
 #include <wtf/MathExtras.h>
-#include <wtf/NeverDestroyed.h>
 #include <wtf/text/StringBuilder.h>
-#include <wtf/text/TextStream.h>
-
-#if USE(CG) && !PLATFORM(IOS)
-#include <ApplicationServices/ApplicationServices.h>
-#endif
 
 namespace WebCore {
 
 using namespace HTMLNames;
 
-std::unique_ptr<CanvasRenderingContext2D> CanvasRenderingContext2D::create(CanvasBase& canvas, bool usesCSSCompatibilityParseMode, bool usesDashboardCompatibilityMode)
+WTF_MAKE_ISO_ALLOCATED_IMPL(CanvasRenderingContext2D);
+
+std::unique_ptr<CanvasRenderingContext2D> CanvasRenderingContext2D::create(CanvasBase& canvas, bool usesCSSCompatibilityParseMode)
 {
-    auto renderingContext = std::unique_ptr<CanvasRenderingContext2D>(new CanvasRenderingContext2D(canvas, usesCSSCompatibilityParseMode, usesDashboardCompatibilityMode));
+    auto renderingContext = std::unique_ptr<CanvasRenderingContext2D>(new CanvasRenderingContext2D(canvas, usesCSSCompatibilityParseMode));
 
     InspectorInstrumentation::didCreateCanvasRenderingContext(*renderingContext);
 
     return renderingContext;
 }
 
-CanvasRenderingContext2D::CanvasRenderingContext2D(CanvasBase& canvas, bool usesCSSCompatibilityParseMode, bool usesDashboardCompatibilityMode)
-    : CanvasRenderingContext2DBase(canvas, usesCSSCompatibilityParseMode, usesDashboardCompatibilityMode)
+CanvasRenderingContext2D::CanvasRenderingContext2D(CanvasBase& canvas, bool usesCSSCompatibilityParseMode)
+    : CanvasRenderingContext2DBase(canvas, usesCSSCompatibilityParseMode)
 {
 }
 
@@ -99,7 +89,7 @@ void CanvasRenderingContext2D::drawFocusIfNeededInternal(const Path& path, Eleme
     auto* context = drawingContext();
     if (!element.focused() || !state().hasInvertibleTransform || path.isEmpty() || !element.isDescendantOf(canvas()) || !context)
         return;
-    context->drawFocusRing(path, 1, 1, RenderTheme::focusRingColor());
+    context->drawFocusRing(path, 1, 1, RenderTheme::singleton().focusRingColor(element.document().styleColorOptions(canvas().computedStyle())));
 }
 
 String CanvasRenderingContext2D::font() const
@@ -165,14 +155,14 @@ void CanvasRenderingContext2D::setFont(const String& newFont)
     document.updateStyleIfNeeded();
 
     if (auto* computedStyle = canvas().computedStyle())
-        newStyle->setFontDescription(computedStyle->fontDescription());
+        newStyle->setFontDescription(FontCascadeDescription { computedStyle->fontDescription() });
     else {
         FontCascadeDescription defaultFontDescription;
         defaultFontDescription.setOneFamily(DefaultFontFamily);
         defaultFontDescription.setSpecifiedSize(DefaultFontSize);
         defaultFontDescription.setComputedSize(DefaultFontSize);
 
-        newStyle->setFontDescription(defaultFontDescription);
+        newStyle->setFontDescription(WTFMove(defaultFontDescription));
     }
 
     newStyle->fontCascade().update(&document.fontSelector());
@@ -310,21 +300,21 @@ inline TextDirection CanvasRenderingContext2D::toTextDirection(Direction directi
         *computedStyle = style;
     switch (direction) {
     case Direction::Inherit:
-        return style ? style->direction() : LTR;
+        return style ? style->direction() : TextDirection::LTR;
     case Direction::Rtl:
-        return RTL;
+        return TextDirection::RTL;
     case Direction::Ltr:
-        return LTR;
+        return TextDirection::LTR;
     }
     ASSERT_NOT_REACHED();
-    return LTR;
+    return TextDirection::LTR;
 }
 
 CanvasDirection CanvasRenderingContext2D::direction() const
 {
     if (state().direction == Direction::Inherit)
         canvas().document().updateStyleIfNeeded();
-    return toTextDirection(state().direction) == RTL ? CanvasDirection::Rtl : CanvasDirection::Ltr;
+    return toTextDirection(state().direction) == TextDirection::RTL ? CanvasDirection::Rtl : CanvasDirection::Ltr;
 }
 
 void CanvasRenderingContext2D::setDirection(CanvasDirection direction)
@@ -336,12 +326,12 @@ void CanvasRenderingContext2D::setDirection(CanvasDirection direction)
     modifiableState().direction = direction;
 }
 
-void CanvasRenderingContext2D::fillText(const String& text, float x, float y, std::optional<float> maxWidth)
+void CanvasRenderingContext2D::fillText(const String& text, float x, float y, Optional<float> maxWidth)
 {
     drawTextInternal(text, x, y, true, maxWidth);
 }
 
-void CanvasRenderingContext2D::strokeText(const String& text, float x, float y, std::optional<float> maxWidth)
+void CanvasRenderingContext2D::strokeText(const String& text, float x, float y, Optional<float> maxWidth)
 {
     drawTextInternal(text, x, y, false, maxWidth);
 }
@@ -364,7 +354,7 @@ static void normalizeSpaces(String& text)
         return;
 
     unsigned textLength = text.length();
-    StringVector<UChar> charVector(textLength);
+    Vector<UChar> charVector(textLength);
     StringView(text).getCharactersWithUpconvert(charVector.data());
 
     charVector[i++] = ' ';
@@ -378,6 +368,12 @@ static void normalizeSpaces(String& text)
 
 Ref<TextMetrics> CanvasRenderingContext2D::measureText(const String& text)
 {
+    if (RuntimeEnabledFeatures::sharedFeatures().webAPIStatisticsEnabled()) {
+        auto& canvas = this->canvas();
+        ResourceLoadObserver::shared().logCanvasWriteOrMeasure(canvas.document(), text);
+        ResourceLoadObserver::shared().logCanvasRead(canvas.document());
+    }
+    
     Ref<TextMetrics> metrics = TextMetrics::create();
 
     String normalizedText = text;
@@ -444,7 +440,7 @@ FloatPoint CanvasRenderingContext2D::textOffset(float width, TextDirection direc
         break;
     }
 
-    bool isRTL = direction == RTL;
+    bool isRTL = direction == TextDirection::RTL;
     auto align = state().textAlign;
     if (align == StartTextAlign)
         align = isRTL ? RightTextAlign : LeftTextAlign;
@@ -464,8 +460,11 @@ FloatPoint CanvasRenderingContext2D::textOffset(float width, TextDirection direc
     return offset;
 }
 
-void CanvasRenderingContext2D::drawTextInternal(const String& text, float x, float y, bool fill, std::optional<float> maxWidth)
+void CanvasRenderingContext2D::drawTextInternal(const String& text, float x, float y, bool fill, Optional<float> maxWidth)
 {
+    if (RuntimeEnabledFeatures::sharedFeatures().webAPIStatisticsEnabled())
+        ResourceLoadObserver::shared().logCanvasWriteOrMeasure(this->canvas().document(), text);
+    
     auto& fontProxy = this->fontProxy();
     const auto& fontMetrics = fontProxy.fontMetrics();
 

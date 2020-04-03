@@ -35,22 +35,16 @@
 #import "WebCoreNSErrorExtras.h"
 #import <AVFoundation/AVAsset.h>
 #import <AVFoundation/AVAssetResourceLoader.h>
+#import <JavaScriptCore/TypedArrayInlines.h>
 #import <objc/objc-runtime.h>
-#import <runtime/TypedArrayInlines.h>
 #import <wtf/MainThread.h>
 #import <wtf/SoftLinking.h>
 #import <wtf/UUID.h>
 
-SOFT_LINK_FRAMEWORK_OPTIONAL(AVFoundation)
-SOFT_LINK_CLASS(AVFoundation, AVURLAsset)
-SOFT_LINK_CLASS(AVFoundation, AVAssetResourceLoadingRequest)
-#define AVURLAsset getAVURLAssetClass()
-#define AVAssetResourceLoadingRequest getAVAssetResourceLoadingRequest()
-
 namespace WebCore {
 
 CDMSessionAVFoundationObjC::CDMSessionAVFoundationObjC(MediaPlayerPrivateAVFoundationObjC* parent, LegacyCDMSessionClient* client)
-    : m_parent(parent->createWeakPtr())
+    : m_parent(makeWeakPtr(*parent))
     , m_client(client)
     , m_sessionId(createCanonicalUUIDString())
 {
@@ -99,9 +93,9 @@ RefPtr<Uint8Array> CDMSessionAVFoundationObjC::generateKeyRequest(const String& 
     systemCode = 0;
     destinationURL = String();
 
-    RefPtr<ArrayBuffer> keyRequestBuffer = ArrayBuffer::create([keyRequest.get() bytes], [keyRequest.get() length]);
+    auto keyRequestBuffer = ArrayBuffer::create([keyRequest.get() bytes], [keyRequest.get() length]);
     unsigned byteLength = keyRequestBuffer->byteLength();
-    return Uint8Array::create(WTFMove(keyRequestBuffer), 0, byteLength);
+    return Uint8Array::tryCreate(WTFMove(keyRequestBuffer), 0, byteLength);
 }
 
 void CDMSessionAVFoundationObjC::releaseKeys()

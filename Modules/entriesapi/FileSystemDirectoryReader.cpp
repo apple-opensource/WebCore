@@ -32,9 +32,12 @@
 #include "FileSystemDirectoryEntry.h"
 #include "FileSystemEntriesCallback.h"
 #include "ScriptExecutionContext.h"
+#include <wtf/IsoMallocInlines.h>
 #include <wtf/MainThread.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(FileSystemDirectoryReader);
 
 FileSystemDirectoryReader::FileSystemDirectoryReader(ScriptExecutionContext& context, FileSystemDirectoryEntry& directory)
     : ActiveDOMObject(&context)
@@ -60,7 +63,7 @@ void FileSystemDirectoryReader::readEntries(ScriptExecutionContext& context, Ref
 {
     if (m_isReading) {
         if (errorCallback)
-            errorCallback->scheduleCallback(context, DOMException::create(Exception { InvalidStateError, ASCIILiteral("Directory reader is already reading") }));
+            errorCallback->scheduleCallback(context, DOMException::create(Exception { InvalidStateError, "Directory reader is already reading"_s }));
         return;
     }
 

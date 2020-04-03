@@ -33,7 +33,6 @@ namespace WebCore {
 
 class ContextMenu;
 class Image;
-class URL;
 
 enum ContextMenuAction {
     ContextMenuItemTagNoAction,
@@ -69,6 +68,7 @@ enum ContextMenuAction {
     ContextMenuItemTagUnicodeInsertZWSMark,
     ContextMenuItemTagUnicodeInsertZWJMark,
     ContextMenuItemTagUnicodeInsertZWNJMark,
+    ContextMenuItemTagInsertEmoji,
 #endif
     ContextMenuItemTagSpellingGuess,
     ContextMenuItemTagNoGuessesFound,
@@ -178,7 +178,7 @@ public:
 
     void setSubMenu(ContextMenu*);
 
-    ContextMenuItem(ContextMenuAction, const String&, bool enabled, bool checked, const Vector<ContextMenuItem>& subMenuItems);
+    WEBCORE_EXPORT ContextMenuItem(ContextMenuAction, const String&, bool enabled, bool checked, const Vector<ContextMenuItem>& subMenuItems);
     ContextMenuItem();
 
     bool isNull() const;

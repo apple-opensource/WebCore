@@ -37,7 +37,7 @@ class DataTransfer;
 class Element;
 class Frame;
 class Image;
-struct PromisedBlobInfo;
+struct PromisedAttachmentInfo;
 
 class DragClient {
 public:
@@ -60,8 +60,6 @@ public:
     // This is not abstract as that would require another #if PLATFORM(COCOA) for the SVGImage client empty implentation.
     virtual void declareAndWriteDragImage(const String&, Element&, const URL&, const String&, Frame*) { }
 #endif
-
-    virtual void prepareToDragPromisedBlob(const PromisedBlobInfo&) { }
 
     virtual ~DragClient() = default;
 };

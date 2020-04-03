@@ -26,31 +26,56 @@
 #include "config.h"
 #include "PublicKeyCredential.h"
 
+#if ENABLE(WEB_AUTHN)
+
+#include "AuthenticatorAssertionResponse.h"
+#include "AuthenticatorAttestationResponse.h"
+#include "AuthenticatorCoordinator.h"
+#include "AuthenticatorResponse.h"
+#include "Document.h"
+#include "JSDOMPromiseDeferred.h"
+#include "Page.h"
+#include "PublicKeyCredentialData.h"
+#include <wtf/text/Base64.h>
+
 namespace WebCore {
 
-PublicKeyCredential::PublicKeyCredential(const String& id)
-    : BasicCredential(id, Type::PublicKey, Discovery::Remote)
+RefPtr<PublicKeyCredential> PublicKeyCredential::tryCreate(const PublicKeyCredentialData& data)
+{
+    if (!data.rawId || !data.clientDataJSON)
+        return nullptr;
+
+    if (data.isAuthenticatorAttestationResponse) {
+        if (!data.attestationObject)
+            return nullptr;
+
+        return adoptRef(*new PublicKeyCredential(data.rawId.releaseNonNull(), AuthenticatorAttestationResponse::create(data.clientDataJSON.releaseNonNull(), data.attestationObject.releaseNonNull()), { data.appid }));
+    }
+
+    if (!data.authenticatorData || !data.signature)
+        return nullptr;
+
+    return adoptRef(*new PublicKeyCredential(data.rawId.releaseNonNull(), AuthenticatorAssertionResponse::create(data.clientDataJSON.releaseNonNull(), data.authenticatorData.releaseNonNull(), data.signature.releaseNonNull(), WTFMove(data.userHandle)), { data.appid }));
+}
+
+PublicKeyCredential::PublicKeyCredential(Ref<ArrayBuffer>&& id, Ref<AuthenticatorResponse>&& response, AuthenticationExtensionsClientOutputs&& extensions)
+    : BasicCredential(WTF::base64URLEncode(id->data(), id->byteLength()), Type::PublicKey, Discovery::Remote)
+    , m_rawId(WTFMove(id))
+    , m_response(WTFMove(response))
+    , m_extensions(WTFMove(extensions))
 {
 }
 
-Vector<Ref<BasicCredential>> PublicKeyCredential::collectFromCredentialStore(CredentialRequestOptions&&, bool)
+PublicKeyCredential::AuthenticationExtensionsClientOutputs PublicKeyCredential::getClientExtensionResults() const
 {
-    return { };
+    return m_extensions;
 }
 
-ExceptionOr<RefPtr<BasicCredential>> PublicKeyCredential::discoverFromExternalSource(const CredentialRequestOptions&, bool)
+void PublicKeyCredential::isUserVerifyingPlatformAuthenticatorAvailable(Document& document, DOMPromiseDeferred<IDLBoolean>&& promise)
 {
-    return Exception { NotSupportedError };
+    document.page()->authenticatorCoordinator().isUserVerifyingPlatformAuthenticatorAvailable(WTFMove(promise));
 }
 
-RefPtr<BasicCredential> PublicKeyCredential::store(RefPtr<BasicCredential>&&, bool)
-{
-    return nullptr;
-}
+} // namespace WebCore
 
-ExceptionOr<RefPtr<BasicCredential>> PublicKeyCredential::create(const CredentialCreationOptions&, bool)
-{
-    return Exception { NotSupportedError };
-}
-
-}
+#endif // ENABLE(WEB_AUTHN)

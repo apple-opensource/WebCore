@@ -48,14 +48,18 @@ namespace DisplayList {
 class DrawingItem;
 
 class Recorder : public GraphicsContextImpl {
+    WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(Recorder);
 public:
-    Recorder(GraphicsContext&, DisplayList&, const FloatRect& initialClip, const AffineTransform&);
+    Recorder(GraphicsContext&, DisplayList&, const GraphicsContextState&, const FloatRect& initialClip, const AffineTransform&);
     virtual ~Recorder();
 
     size_t itemCount() const { return m_displayList.itemCount(); }
 
 private:
+    bool hasPlatformContext() const override { return false; }
+    PlatformGraphicsContext* platformContext() const override { return nullptr; }
+
     void updateState(const GraphicsContextState&, GraphicsContextState::StateChangeFlags) override;
     void clearShadow() override;
 
@@ -84,18 +88,18 @@ private:
 
     void drawGlyphs(const Font&, const GlyphBuffer&, unsigned from, unsigned numGlyphs, const FloatPoint& anchorPoint, FontSmoothingMode) override;
 
-    void drawImage(Image&, const FloatRect& destination, const FloatRect& source, const ImagePaintingOptions&) override;
-    void drawTiledImage(Image&, const FloatRect& destination, const FloatPoint& source, const FloatSize& tileSize, const FloatSize& spacing, const ImagePaintingOptions&) override;
-    void drawTiledImage(Image&, const FloatRect& destination, const FloatRect& source, const FloatSize& tileScaleFactor, Image::TileRule hRule, Image::TileRule vRule, const ImagePaintingOptions&) override;
+    ImageDrawResult drawImage(Image&, const FloatRect& destination, const FloatRect& source, const ImagePaintingOptions&) override;
+    ImageDrawResult drawTiledImage(Image&, const FloatRect& destination, const FloatPoint& source, const FloatSize& tileSize, const FloatSize& spacing, const ImagePaintingOptions&) override;
+    ImageDrawResult drawTiledImage(Image&, const FloatRect& destination, const FloatRect& source, const FloatSize& tileScaleFactor, Image::TileRule hRule, Image::TileRule vRule, const ImagePaintingOptions&) override;
 #if USE(CG) || USE(CAIRO)
     void drawNativeImage(const NativeImagePtr&, const FloatSize& selfSize, const FloatRect& destRect, const FloatRect& srcRect, CompositeOperator, BlendMode, ImageOrientation) override;
 #endif
-    void drawPattern(Image&, const FloatRect& destRect, const FloatRect& srcRect, const AffineTransform&, const FloatPoint& phase, const FloatSize& spacing, CompositeOperator, BlendMode = BlendModeNormal) override;
+    void drawPattern(Image&, const FloatRect& destRect, const FloatRect& srcRect, const AffineTransform&, const FloatPoint& phase, const FloatSize& spacing, CompositeOperator, BlendMode = BlendMode::Normal) override;
 
     void drawRect(const FloatRect&, float borderThickness) override;
     void drawLine(const FloatPoint&, const FloatPoint&) override;
-    void drawLinesForText(const FloatPoint&, const DashArray& widths, bool printing, bool doubleLines, float strokeThickness) override;
-    void drawLineForDocumentMarker(const FloatPoint&, float width, GraphicsContext::DocumentMarkerLineStyle) override;
+    void drawLinesForText(const FloatPoint&, float thickness, const DashArray& widths, bool printing, bool doubleLines) override;
+    void drawDotsForDocumentMarker(const FloatRect&, DocumentMarkerLineStyle) override;
     void drawEllipse(const FloatRect&) override;
     void drawPath(const Path&) override;
 
@@ -109,6 +113,8 @@ private:
     void rotate(float angleInRadians) override;
     void scale(const FloatSize&) override;
     void concatCTM(const AffineTransform&) override;
+    void setCTM(const AffineTransform&) override;
+    AffineTransform getCTM(GraphicsContext::IncludeDeviceScale) override;
 
     void beginTransparencyLayer(float opacity) override;
     void endTransparencyLayer() override;
@@ -117,8 +123,12 @@ private:
     void clipOut(const FloatRect&) override;
     void clipOut(const Path&) override;
     void clipPath(const Path&, WindRule) override;
+    IntRect clipBounds() override;
+    void clipToImageBuffer(ImageBuffer&, const FloatRect&) override;
     
     void applyDeviceScaleFactor(float) override;
+
+    FloatRect roundToDevicePixels(const FloatRect&, GraphicsContext::RoundingMode) override;
 
     Item& appendItem(Ref<Item>&&);
     void willAppendItem(const Item&);
@@ -137,17 +147,17 @@ private:
         bool wasUsedForDrawing { false };
         size_t saveItemIndex { 0 };
         
-        ContextState(const AffineTransform& transform, const FloatRect& clip)
+        ContextState(const GraphicsContextState& state, const AffineTransform& transform, const FloatRect& clip)
             : ctm(transform)
             , clipBounds(clip)
+            , lastDrawingState(state)
         {
         }
         
         ContextState cloneForSave(size_t saveIndex) const
         {
-            ContextState state(ctm, clipBounds);
+            ContextState state(lastDrawingState, ctm, clipBounds);
             state.stateChange = stateChange;
-            state.lastDrawingState = lastDrawingState;
             state.saveItemIndex = saveIndex;
             return state;
         }

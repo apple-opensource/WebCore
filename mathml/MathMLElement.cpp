@@ -38,8 +38,12 @@
 #include "MathMLNames.h"
 #include "MouseEvent.h"
 #include "RenderTableCell.h"
+#include <wtf/IsoMallocInlines.h>
+#include <wtf/text/StringConcatenateNumbers.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(MathMLElement);
 
 using namespace MathMLNames;
 
@@ -70,7 +74,7 @@ unsigned MathMLElement::rowSpan() const
     return std::max(1u, std::min(limitToOnlyHTMLNonNegative(rowSpanValue, 1u), maxRowspan));
 }
 
-void MathMLElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
+void MathMLElement::parseAttribute(const QualifiedName& name, const AtomString& value)
 {
     if (name == hrefAttr) {
         bool wasLink = isLink();
@@ -94,17 +98,34 @@ bool MathMLElement::isPresentationAttribute(const QualifiedName& name) const
     return StyledElement::isPresentationAttribute(name);
 }
 
-void MathMLElement::collectStyleForPresentationAttribute(const QualifiedName& name, const AtomicString& value, MutableStyleProperties& style)
+static String convertMathSizeIfNeeded(const AtomString& value)
+{
+    if (value == "small")
+        return "0.75em";
+    if (value == "normal")
+        return "1em";
+    if (value == "big")
+        return "1.5em";
+
+    // FIXME: mathsize accepts any MathML length, including named spaces (see parseMathMLLength).
+    // FIXME: Might be better to use double than float.
+    // FIXME: Might be better to use "shortest" numeric formatting instead of fixed width.
+    bool ok = false;
+    float unitlessValue = value.toFloat(&ok);
+    if (!ok)
+        return value;
+    return makeString(FormattedNumber::fixedWidth(unitlessValue * 100, 3), '%');
+}
+
+void MathMLElement::collectStyleForPresentationAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
     if (name == mathbackgroundAttr)
         addPropertyToPresentationAttributeStyle(style, CSSPropertyBackgroundColor, value);
-    else if (name == mathsizeAttr) {
-        // The following three values of mathsize are handled in WebCore/css/mathml.css
-        if (value != "normal" && value != "small" && value != "big")
-            addPropertyToPresentationAttributeStyle(style, CSSPropertyFontSize, value);
-    } else if (name == mathcolorAttr)
+    else if (name == mathsizeAttr)
+        addPropertyToPresentationAttributeStyle(style, CSSPropertyFontSize, convertMathSizeIfNeeded(value));
+    else if (name == mathcolorAttr)
         addPropertyToPresentationAttributeStyle(style, CSSPropertyColor, value);
-    // FIXME: deprecated attributes that should loose in a conflict with a non deprecated attribute
+    // FIXME: The following are deprecated attributes that should lose if there is a conflict with a non-deprecated attribute.
     else if (name == fontsizeAttr)
         addPropertyToPresentationAttributeStyle(style, CSSPropertyFontSize, value);
     else if (name == backgroundAttr)
@@ -122,8 +143,7 @@ void MathMLElement::collectStyleForPresentationAttribute(const QualifiedName& na
             addPropertyToPresentationAttributeStyle(style, CSSPropertyDirection, value);
     }  else {
         ASSERT(!isPresentationAttribute(name));
-        StyledElement::collectStyleForPresentationAttribute(name, value
-        , style);
+        StyledElement::collectStyleForPresentationAttribute(name, value, style);
     }
 }
 
@@ -167,15 +187,7 @@ bool MathMLElement::canStartSelection() const
     return hasEditableStyle();
 }
 
-bool MathMLElement::isFocusable() const
-{
-    if (renderer() && renderer()->absoluteClippedOverflowRect().isEmpty())
-        return false;
-
-    return StyledElement::isFocusable();
-}
-
-bool MathMLElement::isKeyboardFocusable(KeyboardEvent& event) const
+bool MathMLElement::isKeyboardFocusable(KeyboardEvent* event) const
 {
     if (isFocusable() && StyledElement::supportsFocus())
         return StyledElement::isKeyboardFocusable(event);
@@ -213,18 +225,6 @@ int MathMLElement::tabIndex() const
 {
     // Skip the supportsFocus check in StyledElement.
     return Element::tabIndex();
-}
-
-StringView MathMLElement::stripLeadingAndTrailingWhitespace(const StringView& stringView)
-{
-    unsigned start = 0, stringLength = stringView.length();
-    while (stringLength > 0 && isHTMLSpace(stringView[start])) {
-        start++;
-        stringLength--;
-    }
-    while (stringLength > 0 && isHTMLSpace(stringView[start + stringLength - 1]))
-        stringLength--;
-    return stringView.substring(start, stringLength);
 }
 
 }

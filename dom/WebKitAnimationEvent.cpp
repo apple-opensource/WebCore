@@ -28,15 +28,15 @@
 
 namespace WebCore {
 
-WebKitAnimationEvent::WebKitAnimationEvent(const AtomicString& type, const Init& initializer, IsTrusted isTrusted)
+WebKitAnimationEvent::WebKitAnimationEvent(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
     : Event(type, initializer, isTrusted)
     , m_animationName(initializer.animationName)
     , m_elapsedTime(initializer.elapsedTime)
 {
 }
 
-WebKitAnimationEvent::WebKitAnimationEvent(const AtomicString& type, const String& animationName, double elapsedTime)
-    : Event(type, true, true)
+WebKitAnimationEvent::WebKitAnimationEvent(const AtomString& type, const String& animationName, double elapsedTime)
+    : Event(type, CanBubble::Yes, IsCancelable::Yes)
     , m_animationName(animationName)
     , m_elapsedTime(elapsedTime)
 {

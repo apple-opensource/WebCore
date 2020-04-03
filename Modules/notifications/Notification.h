@@ -38,7 +38,7 @@
 #include "NotificationDirection.h"
 #include "NotificationPermission.h"
 #include "Timer.h"
-#include "URL.h"
+#include <wtf/URL.h>
 #include "WritingMode.h"
 
 namespace WebCore {
@@ -47,7 +47,7 @@ class Document;
 class NotificationPermissionCallback;
 
 class Notification final : public RefCounted<Notification>, public ActiveDOMObject, public EventTargetWithInlineData {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_ISO_ALLOCATED(Notification);
 public:
     using Permission = NotificationPermission;
     using Direction = NotificationDirection;
@@ -73,7 +73,7 @@ public:
     const String& tag() const { return m_tag; }
     const URL& icon() const { return m_icon; }
 
-    TextDirection direction() const { return m_direction == Direction::Rtl ? RTL : LTR; }
+    TextDirection direction() const { return m_direction == Direction::Rtl ? TextDirection::RTL : TextDirection::LTR; }
 
     WEBCORE_EXPORT void dispatchClickEvent();
     WEBCORE_EXPORT void dispatchCloseEvent();

@@ -32,7 +32,6 @@
 #include "AXObjectCache.h"
 #include "AccessibilityTable.h"
 #include "AccessibilityTableRow.h"
-#include "AccessibleNode.h"
 #include "ElementIterator.h"
 #include "HTMLElement.h"
 #include "HTMLNames.h"
@@ -149,7 +148,7 @@ bool AccessibilityTableCell::isTableHeaderCell() const
 
 bool AccessibilityTableCell::isColumnHeaderCell() const
 {
-    const AtomicString& scope = getAttribute(scopeAttr);
+    const AtomString& scope = getAttribute(scopeAttr);
     if (scope == "col" || scope == "colgroup")
         return true;
     if (scope == "row" || scope == "rowgroup")
@@ -178,7 +177,7 @@ bool AccessibilityTableCell::isColumnHeaderCell() const
 
 bool AccessibilityTableCell::isRowHeaderCell() const
 {
-    const AtomicString& scope = getAttribute(scopeAttr);
+    const AtomString& scope = getAttribute(scopeAttr);
     if (scope == "row" || scope == "rowgroup")
         return true;
     if (scope == "col" || scope == "colgroup")
@@ -270,7 +269,7 @@ void AccessibilityTableCell::columnHeaders(AccessibilityChildrenVector& headers)
         std::pair<unsigned, unsigned> childRowRange;
         tableCell->rowIndexRange(childRowRange);
             
-        const AtomicString& scope = tableCell->getAttribute(scopeAttr);
+        const AtomString& scope = tableCell->getAttribute(scopeAttr);
         if (scope == "colgroup" && isTableCellInSameColGroup(tableCell))
             headers.append(tableCell);
         else if (tableCell->isColumnHeaderCell())
@@ -295,7 +294,7 @@ void AccessibilityTableCell::rowHeaders(AccessibilityChildrenVector& headers)
         if (!tableCell || tableCell == this || headers.contains(tableCell))
             continue;
         
-        const AtomicString& scope = tableCell->getAttribute(scopeAttr);
+        const AtomString& scope = tableCell->getAttribute(scopeAttr);
         if (scope == "rowgroup" && isTableCellInSameRowGroup(tableCell))
             headers.append(tableCell);
         else if (tableCell->isRowHeaderCell())
@@ -386,10 +385,10 @@ AccessibilityObject* AccessibilityTableCell::titleUIElement() const
     
 int AccessibilityTableCell::axColumnIndex() const
 {
-    unsigned colIndexValue = unsignedValueForProperty(AXPropertyName::ColIndex);
-    if (colIndexValue >= 1)
-        return colIndexValue;
-    
+    const AtomString& colIndexValue = getAttribute(aria_colindexAttr);
+    if (colIndexValue.toInt() >= 1)
+        return colIndexValue.toInt();
+
     // "ARIA 1.1: If the set of columns which is present in the DOM is contiguous, and if there are no cells which span more than one row
     // or column in that set, then authors may place aria-colindex on each row, setting the value to the index of the first column of the set."
     // Here, we let its parent row to set its index beforehand, so we don't have to go through the siblings to calculate the index.
@@ -404,9 +403,9 @@ int AccessibilityTableCell::axRowIndex() const
 {
     // ARIA 1.1: Authors should place aria-rowindex on each row. Authors may also place
     // aria-rowindex on all of the children or owned elements of each row.
-    unsigned rowIndexValue = unsignedValueForProperty(AXPropertyName::RowIndex);
-    if (rowIndexValue >= 1)
-        return rowIndexValue;
+    const AtomString& rowIndexValue = getAttribute(aria_rowindexAttr);
+    if (rowIndexValue.toInt() >= 1)
+        return rowIndexValue.toInt();
     
     if (AccessibilityTableRow* parentRow = this->parentRow())
         return parentRow->axRowIndex();
@@ -421,10 +420,10 @@ int AccessibilityTableCell::axColumnSpan() const
     if (hasAttribute(colspanAttr))
         return -1;
 
-    unsigned colSpanValue = unsignedValueForProperty(AXPropertyName::ColSpan);
+    const AtomString& colSpanValue = getAttribute(aria_colspanAttr);
     // ARIA 1.1: Authors must set the value of aria-colspan to an integer greater than or equal to 1.
-    if (colSpanValue >= 1)
-        return colSpanValue;
+    if (colSpanValue.toInt() >= 1)
+        return colSpanValue.toInt();
     
     return -1;
 }
@@ -436,14 +435,14 @@ int AccessibilityTableCell::axRowSpan() const
     if (hasAttribute(rowspanAttr))
         return -1;
 
-    unsigned rowSpanValue = unsignedValueForProperty(AXPropertyName::RowSpan);
+    const AtomString& rowSpanValue = getAttribute(aria_rowspanAttr);
     
     // ARIA 1.1: Authors must set the value of aria-rowspan to an integer greater than or equal to 0.
     // Setting the value to 0 indicates that the cell or gridcell is to span all the remaining rows in the row group.
-    if (hasProperty(AXPropertyName::RowSpan) && !rowSpanValue)
+    if (rowSpanValue == "0")
         return 0;
-    if (rowSpanValue >= 1)
-        return rowSpanValue;
+    if (rowSpanValue.toInt() >= 1)
+        return rowSpanValue.toInt();
     
     return -1;
 }

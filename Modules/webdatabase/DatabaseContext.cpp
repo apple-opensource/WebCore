@@ -94,14 +94,14 @@ namespace WebCore {
 // DatabaseContext will outlive both regardless of which of the 2 destructs first.
 
 
-DatabaseContext::DatabaseContext(ScriptExecutionContext& context)
-    : ActiveDOMObject(&context)
+DatabaseContext::DatabaseContext(Document& document)
+    : ActiveDOMObject(document)
 {
     // ActiveDOMObject expects this to be called to set internal flags.
     suspendIfNeeded();
 
-    ASSERT(!context.databaseContext());
-    context.setDatabaseContext(this);
+    ASSERT(!document.databaseContext());
+    document.setDatabaseContext(this);
 }
 
 DatabaseContext::~DatabaseContext()
@@ -209,9 +209,9 @@ void DatabaseContext::databaseExceededQuota(const String& name, DatabaseDetails 
     ASSERT(m_scriptExecutionContext->isWorkerGlobalScope());
 }
 
-SecurityOriginData DatabaseContext::securityOrigin() const
+const SecurityOriginData& DatabaseContext::securityOrigin() const
 {
-    return SecurityOriginData::fromSecurityOrigin(*m_scriptExecutionContext->securityOrigin());
+    return m_scriptExecutionContext->securityOrigin()->data();
 }
 
 bool DatabaseContext::isContextThread() const

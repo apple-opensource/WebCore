@@ -29,14 +29,20 @@
 #include "ContextDestructionObserver.h"
 #include "DOMWindow.h"
 #include "Document.h"
+#include "DocumentEventQueue.h"
+#include "Event.h"
+#include "EventNames.h"
 #include "Frame.h"
 #include "FrameView.h"
 #include "Page.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
 
-VisualViewport::VisualViewport(Frame* frame)
-    : DOMWindowProperty(frame)
+WTF_MAKE_ISO_ALLOCATED_IMPL(VisualViewport);
+
+VisualViewport::VisualViewport(DOMWindow& window)
+    : DOMWindowProperty(&window)
 {
 }
 
@@ -47,74 +53,149 @@ EventTargetInterface VisualViewport::eventTargetInterface() const
 
 ScriptExecutionContext* VisualViewport::scriptExecutionContext() const
 {
-    if (!m_associatedDOMWindow)
+    auto window = this->window();
+    if (!window)
         return nullptr;
-    return static_cast<ContextDestructionObserver*>(m_associatedDOMWindow)->scriptExecutionContext();
+    return static_cast<ContextDestructionObserver*>(window)->scriptExecutionContext();
 }
 
-static FrameView* getFrameViewAndLayoutIfNonNull(Frame* frame)
+bool VisualViewport::addEventListener(const AtomString& eventType, Ref<EventListener>&& listener, const AddEventListenerOptions& options)
 {
-    auto* view = frame ? frame->view() : nullptr;
-    if (view) {
-        ASSERT(frame->pageZoomFactor());
-        frame->document()->updateLayoutIgnorePendingStylesheets(Document::RunPostLayoutTasks::Synchronously);
-    }
-    return view;
+    if (!EventTarget::addEventListener(eventType, WTFMove(listener), options))
+        return false;
+
+    if (auto* frame = this->frame())
+        frame->document()->addListenerTypeIfNeeded(eventType);
+    return true;
+}
+
+void VisualViewport::updateFrameLayout() const
+{
+    ASSERT(frame());
+    frame()->document()->updateLayoutIgnorePendingStylesheets(Document::RunPostLayoutTasks::Synchronously);
 }
 
 double VisualViewport::offsetLeft() const
 {
-    if (auto* view = getFrameViewAndLayoutIfNonNull(m_frame))
-        return (view->visualViewportRect().x() - view->layoutViewportRect().x()) / m_frame->pageZoomFactor();
-    return 0;
+    if (!frame())
+        return 0;
+
+    updateFrameLayout();
+    return m_offsetLeft;
 }
 
 double VisualViewport::offsetTop() const
 {
-    if (auto* view = getFrameViewAndLayoutIfNonNull(m_frame))
-        return (view->visualViewportRect().y() - view->layoutViewportRect().y()) / m_frame->pageZoomFactor();
-    return 0;
+    if (!frame())
+        return 0;
+
+    updateFrameLayout();
+    return m_offsetTop;
 }
 
 double VisualViewport::pageLeft() const
 {
-    if (auto* view = getFrameViewAndLayoutIfNonNull(m_frame))
-        return view->visualViewportRect().x() / m_frame->pageZoomFactor();
-    return 0;
+    if (!frame())
+        return 0;
+
+    updateFrameLayout();
+    return m_pageLeft;
 }
 
 double VisualViewport::pageTop() const
 {
-    if (auto* view = getFrameViewAndLayoutIfNonNull(m_frame))
-        return view->visualViewportRect().y() / m_frame->pageZoomFactor();
-    return 0;
+    if (!frame())
+        return 0;
+
+    updateFrameLayout();
+    return m_pageTop;
 }
 
 double VisualViewport::width() const
 {
-    if (auto* view = getFrameViewAndLayoutIfNonNull(m_frame))
-        return view->visualViewportRect().width() / m_frame->pageZoomFactor();
-    return 0;
+    if (!frame())
+        return 0;
+
+    updateFrameLayout();
+    return m_width;
 }
 
 double VisualViewport::height() const
 {
-    if (auto* view = getFrameViewAndLayoutIfNonNull(m_frame))
-        return view->visualViewportRect().height() / m_frame->pageZoomFactor();
-    return 0;
+    if (!frame())
+        return 0;
+
+    updateFrameLayout();
+    return m_height;
 }
 
 double VisualViewport::scale() const
 {
     // Subframes always have scale 1 since they aren't scaled relative to their parent frame.
-    if (!m_frame || !m_frame->isMainFrame())
+    auto* frame = this->frame();
+    if (!frame || !frame->isMainFrame())
         return 1;
 
-    if (auto* page = m_frame->page()) {
-        m_frame->document()->updateLayoutIgnorePendingStylesheets(Document::RunPostLayoutTasks::Synchronously);
-        return page->pageScaleFactor();
+    updateFrameLayout();
+    return m_scale;
+}
+
+void VisualViewport::update()
+{
+    double offsetLeft = 0;
+    double offsetTop = 0;
+    m_pageLeft = 0;
+    m_pageTop = 0;
+    double width = 0;
+    double height = 0;
+    double scale = 1;
+
+    if (auto* frame = this->frame()) {
+        if (auto* view = frame->view()) {
+            auto visualViewportRect = view->visualViewportRect();
+            auto layoutViewportRect = view->layoutViewportRect();
+            auto pageZoomFactor = frame->pageZoomFactor();
+            ASSERT(pageZoomFactor);
+            offsetLeft = (visualViewportRect.x() - layoutViewportRect.x()) / pageZoomFactor;
+            offsetTop = (visualViewportRect.y() - layoutViewportRect.y()) / pageZoomFactor;
+            m_pageLeft = visualViewportRect.x() / pageZoomFactor;
+            m_pageTop = visualViewportRect.y() / pageZoomFactor;
+            width = visualViewportRect.width() / pageZoomFactor;
+            height = visualViewportRect.height() / pageZoomFactor;
+        }
+        if (auto* page = frame->page())
+            scale = page->pageScaleFactor();
     }
-    return 1;
+
+    if (m_offsetLeft != offsetLeft || m_offsetTop != offsetTop) {
+        enqueueScrollEvent();
+        m_offsetLeft = offsetLeft;
+        m_offsetTop = offsetTop;
+    }
+    if (m_width != width || m_height != height || m_scale != scale) {
+        enqueueResizeEvent();
+        m_width = width;
+        m_height = height;
+        m_scale = scale;
+    }
+}
+
+void VisualViewport::enqueueResizeEvent()
+{
+    auto* frame = this->frame();
+    if (!frame)
+        return;
+
+    frame->document()->eventQueue().enqueueResizeEvent(*this, Event::CanBubble::No, Event::IsCancelable::No);
+}
+
+void VisualViewport::enqueueScrollEvent()
+{
+    auto* frame = this->frame();
+    if (!frame)
+        return;
+
+    frame->document()->eventQueue().enqueueScrollEvent(*this, Event::CanBubble::No, Event::IsCancelable::No);
 }
 
 } // namespace WebCore

@@ -29,6 +29,8 @@
 #include "JSExtendableMessageEvent.h"
 
 #include "JSDOMConstructor.h"
+#include "JSDOMConvertInterface.h"
+#include "JSDOMConvertStrings.h"
 
 namespace WebCore {
 
@@ -67,7 +69,7 @@ JSValue JSExtendableMessageEvent::data(ExecState& state) const
 {
     if (JSValue cachedValue = m_data.get()) {
         // We cannot use a cached object if we are in a different world than the one it was created in.
-        if (!cachedValue.isObject() || &worldForDOMObject(cachedValue.getObject()) == &currentWorld(&state))
+        if (isWorldCompatible(state, cachedValue))
             return cachedValue;
         ASSERT_NOT_REACHED();
     }

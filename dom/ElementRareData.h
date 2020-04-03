@@ -21,17 +21,24 @@
 
 #pragma once
 
-#include "AccessibleNode.h"
 #include "CustomElementReactionQueue.h"
 #include "DOMTokenList.h"
 #include "DatasetDOMStringMap.h"
+#include "IntersectionObserver.h"
 #include "NamedNodeMap.h"
 #include "NodeRareData.h"
 #include "PseudoElement.h"
 #include "RenderElement.h"
+#include "ResizeObserver.h"
 #include "ShadowRoot.h"
+#include "StylePropertyMap.h"
 
 namespace WebCore {
+
+inline IntSize defaultMinimumSizeForResizing()
+{
+    return IntSize(LayoutUnit::max(), LayoutUnit::max());
+}
 
 class ElementRareData : public NodeRareData {
 public:
@@ -71,8 +78,14 @@ public:
 
     bool childrenAffectedByLastChildRules() const { return m_childrenAffectedByLastChildRules; }
     void setChildrenAffectedByLastChildRules(bool value) { m_childrenAffectedByLastChildRules = value; }
+    bool childrenAffectedByForwardPositionalRules() const { return m_childrenAffectedByForwardPositionalRules; }
+    void setChildrenAffectedByForwardPositionalRules(bool value) { m_childrenAffectedByForwardPositionalRules = value; }
+    bool descendantsAffectedByForwardPositionalRules() const { return m_descendantsAffectedByForwardPositionalRules; }
+    void setDescendantsAffectedByForwardPositionalRules(bool value) { m_descendantsAffectedByForwardPositionalRules = value; }
     bool childrenAffectedByBackwardPositionalRules() const { return m_childrenAffectedByBackwardPositionalRules; }
     void setChildrenAffectedByBackwardPositionalRules(bool value) { m_childrenAffectedByBackwardPositionalRules = value; }
+    bool descendantsAffectedByBackwardPositionalRules() const { return m_descendantsAffectedByBackwardPositionalRules; }
+    void setDescendantsAffectedByBackwardPositionalRules(bool value) { m_descendantsAffectedByBackwardPositionalRules = value; }
     bool childrenAffectedByPropertyBasedBackwardPositionalRules() const { return m_childrenAffectedByPropertyBasedBackwardPositionalRules; }
     void setChildrenAffectedByPropertyBasedBackwardPositionalRules(bool value) { m_childrenAffectedByPropertyBasedBackwardPositionalRules = value; }
 
@@ -111,8 +124,62 @@ public:
     bool hasCSSAnimation() const { return m_hasCSSAnimation; }
     void setHasCSSAnimation(bool value) { m_hasCSSAnimation = value; }
 
-    AccessibleNode* accessibleNode() const { return m_accessibleNode.get(); }
-    void setAccessibleNode(std::unique_ptr<AccessibleNode> accessibleNode) { m_accessibleNode = WTFMove(accessibleNode); }
+    bool hasElementIdentifier() const { return m_hasElementIdentifier; }
+    void setHasElementIdentifier(bool value) { m_hasElementIdentifier = value; }
+
+#if ENABLE(INTERSECTION_OBSERVER)
+    IntersectionObserverData* intersectionObserverData() { return m_intersectionObserverData.get(); }
+    void setIntersectionObserverData(std::unique_ptr<IntersectionObserverData>&& data) { m_intersectionObserverData = WTFMove(data); }
+#endif
+
+#if ENABLE(RESIZE_OBSERVER)
+    ResizeObserverData* resizeObserverData() { return m_resizeObserverData.get(); }
+    void setResizeObserverData(std::unique_ptr<ResizeObserverData>&& data) { m_resizeObserverData = WTFMove(data); }
+#endif
+
+#if ENABLE(CSS_TYPED_OM)
+    StylePropertyMap* attributeStyleMap() { return m_attributeStyleMap.get(); }
+    void setAttributeStyleMap(Ref<StylePropertyMap>&& map) { m_attributeStyleMap = WTFMove(map); }
+#endif
+
+#if DUMP_NODE_STATISTICS
+    OptionSet<UseType> useTypes() const
+    {
+        auto result = NodeRareData::useTypes();
+        if (m_tabIndexWasSetExplicitly)
+            result.add(UseType::TabIndex);
+        if (m_styleAffectedByActive || m_styleAffectedByEmpty || m_styleAffectedByFocusWithin || m_childrenAffectedByHover
+            || m_childrenAffectedByDrag || m_childrenAffectedByLastChildRules || m_childrenAffectedByForwardPositionalRules
+            || m_descendantsAffectedByForwardPositionalRules || m_childrenAffectedByBackwardPositionalRules
+            || m_descendantsAffectedByBackwardPositionalRules || m_childrenAffectedByPropertyBasedBackwardPositionalRules)
+            result.add(UseType::StyleFlags);
+        if (m_minimumSizeForResizing != defaultMinimumSizeForResizing())
+            result.add(UseType::MinimumSize);
+        if (!m_savedLayerScrollPosition.isZero())
+            result.add(UseType::ScrollingPosition);
+        if (m_computedStyle)
+            result.add(UseType::ComputedStyle);
+        if (m_dataset)
+            result.add(UseType::Dataset);
+        if (m_classList)
+            result.add(UseType::ClassList);
+        if (m_shadowRoot)
+            result.add(UseType::ShadowRoot);
+        if (m_customElementReactionQueue)
+            result.add(UseType::CustomElementQueue);
+        if (m_attributeMap)
+            result.add(UseType::AttributeMap);
+        if (m_intersectionObserverData)
+            result.add(UseType::InteractionObserver);
+#if ENABLE(RESIZE_OBSERVER)
+        if (m_resizeObserverData)
+            result.add(UseType::ResizeObserver);
+#endif
+        if (m_beforePseudoElement || m_afterPseudoElement)
+            result.add(UseType::PseudoElements);
+        return result;
+    }
+#endif
 
 private:
     int m_tabIndex;
@@ -126,13 +193,17 @@ private:
 #endif
     unsigned m_hasPendingResources : 1;
     unsigned m_hasCSSAnimation : 1;
+    unsigned m_hasElementIdentifier : 1;
     unsigned m_childrenAffectedByHover : 1;
     unsigned m_childrenAffectedByDrag : 1;
     // Bits for dynamic child matching.
     // We optimize for :first-child and :last-child. The other positional child selectors like nth-child or
     // *-child-of-type, we will just give up and re-evaluate whenever children change at all.
     unsigned m_childrenAffectedByLastChildRules : 1;
+    unsigned m_childrenAffectedByForwardPositionalRules : 1;
+    unsigned m_descendantsAffectedByForwardPositionalRules : 1;
     unsigned m_childrenAffectedByBackwardPositionalRules : 1;
+    unsigned m_descendantsAffectedByBackwardPositionalRules : 1;
     unsigned m_childrenAffectedByPropertyBasedBackwardPositionalRules : 1;
 
     LayoutSize m_minimumSizeForResizing;
@@ -144,19 +215,23 @@ private:
     RefPtr<ShadowRoot> m_shadowRoot;
     std::unique_ptr<CustomElementReactionQueue> m_customElementReactionQueue;
     std::unique_ptr<NamedNodeMap> m_attributeMap;
+#if ENABLE(INTERSECTION_OBSERVER)
+    std::unique_ptr<IntersectionObserverData> m_intersectionObserverData;
+#endif
+
+#if ENABLE(RESIZE_OBSERVER)
+    std::unique_ptr<ResizeObserverData> m_resizeObserverData;
+#endif
 
     RefPtr<PseudoElement> m_beforePseudoElement;
     RefPtr<PseudoElement> m_afterPseudoElement;
 
-    std::unique_ptr<AccessibleNode> m_accessibleNode;
+#if ENABLE(CSS_TYPED_OM)
+    RefPtr<StylePropertyMap> m_attributeStyleMap;
+#endif
 
     void releasePseudoElement(PseudoElement*);
 };
-
-inline IntSize defaultMinimumSizeForResizing()
-{
-    return IntSize(LayoutUnit::max(), LayoutUnit::max());
-}
 
 inline ElementRareData::ElementRareData(RenderElement* renderer)
     : NodeRareData(renderer)
@@ -171,10 +246,14 @@ inline ElementRareData::ElementRareData(RenderElement* renderer)
 #endif
     , m_hasPendingResources(false)
     , m_hasCSSAnimation(false)
+    , m_hasElementIdentifier(false)
     , m_childrenAffectedByHover(false)
     , m_childrenAffectedByDrag(false)
     , m_childrenAffectedByLastChildRules(false)
+    , m_childrenAffectedByForwardPositionalRules(false)
+    , m_descendantsAffectedByForwardPositionalRules(false)
     , m_childrenAffectedByBackwardPositionalRules(false)
+    , m_descendantsAffectedByBackwardPositionalRules(false)
     , m_childrenAffectedByPropertyBasedBackwardPositionalRules(false)
     , m_minimumSizeForResizing(defaultMinimumSizeForResizing())
 {
@@ -212,7 +291,10 @@ inline void ElementRareData::resetStyleRelations()
     setStyleAffectedByActive(false);
     setChildrenAffectedByDrag(false);
     setChildrenAffectedByLastChildRules(false);
+    setChildrenAffectedByForwardPositionalRules(false);
+    setDescendantsAffectedByForwardPositionalRules(false);
     setChildrenAffectedByBackwardPositionalRules(false);
+    setDescendantsAffectedByBackwardPositionalRules(false);
     setChildrenAffectedByPropertyBasedBackwardPositionalRules(false);
 }
 

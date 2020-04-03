@@ -29,9 +29,9 @@
 #pragma once
 
 #include "InspectorWebAgentBase.h"
-#include <inspector/InspectorBackendDispatchers.h>
-#include <inspector/InspectorFrontendDispatchers.h>
-#include <inspector/InspectorProtocolObjects.h>
+#include <JavaScriptCore/InspectorBackendDispatchers.h>
+#include <JavaScriptCore/InspectorFrontendDispatchers.h>
+#include <JavaScriptCore/InspectorProtocolObjects.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -90,6 +90,8 @@ private:
 
     HashMap<PseudoElement*, String> m_pseudoElementToIdMap;
     HashMap<String, PseudoElement*> m_idToPseudoElement;
+
+    bool m_suppressLayerChangeEvents { false };
 };
 
 } // namespace WebCore

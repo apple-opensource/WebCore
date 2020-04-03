@@ -32,6 +32,7 @@
 #include "JSDOMPromiseDeferred.h"
 #include "SWClientConnection.h"
 #include "ServiceWorkerRegistrationData.h"
+#include "Timer.h"
 
 namespace WebCore {
 
@@ -40,6 +41,7 @@ class ServiceWorker;
 class ServiceWorkerContainer;
 
 class ServiceWorkerRegistration final : public RefCounted<ServiceWorkerRegistration>, public EventTargetWithInlineData, public ActiveDOMObject {
+    WTF_MAKE_ISO_ALLOCATED(ServiceWorkerRegistration);
 public:
     static Ref<ServiceWorkerRegistration> getOrCreate(ScriptExecutionContext&, Ref<ServiceWorkerContainer>&&, ServiceWorkerRegistrationData&&);
 
@@ -66,7 +68,7 @@ public:
     void update(Ref<DeferredPromise>&&);
     void unregister(Ref<DeferredPromise>&&);
 
-    void softUpdate();
+    void scheduleSoftUpdate();
 
     using RefCounted::ref;
     using RefCounted::deref;
@@ -74,7 +76,7 @@ public:
     const ServiceWorkerRegistrationData& data() const { return m_registrationData; }
 
     void updateStateFromServer(ServiceWorkerRegistrationState, RefPtr<ServiceWorker>&&);
-    void scheduleTaskToFireUpdateFoundEvent();
+    void fireUpdateFoundEvent();
 
 private:
     ServiceWorkerRegistration(ScriptExecutionContext&, Ref<ServiceWorkerContainer>&&, ServiceWorkerRegistrationData&&);
@@ -84,6 +86,8 @@ private:
     ScriptExecutionContext* scriptExecutionContext() const final;
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
+
+    void softUpdate();
 
     // ActiveDOMObject.
     const char* activeDOMObjectName() const final;
@@ -99,6 +103,7 @@ private:
 
     bool m_isStopped { false };
     RefPtr<PendingActivity<ServiceWorkerRegistration>> m_pendingActivityForEventDispatch;
+    Timer m_softUpdateTimer;
 };
 
 } // namespace WebCore

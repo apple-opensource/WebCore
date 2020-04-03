@@ -29,19 +29,15 @@
 
 #include "ImageDecoder.h"
 #include "SampleMap.h"
-#include <map>
 #include <wtf/Lock.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
 OBJC_CLASS AVAssetTrack;
 OBJC_CLASS AVAssetReader;
-OBJC_CLASS AVAssetReaderTrackOutput;
 OBJC_CLASS AVURLAsset;
 OBJC_CLASS WebCoreSharedBufferResourceLoaderDelegate;
 typedef struct opaqueCMSampleBuffer* CMSampleBufferRef;
-typedef struct OpaqueVTImageRotationSession* VTImageRotationSessionRef;
-typedef struct __CVPixelBufferPool* CVPixelBufferPoolRef;
 
 namespace WTF {
 class MediaTime;
@@ -51,6 +47,7 @@ namespace WebCore {
 
 class ContentType;
 class ImageDecoderAVFObjCSample;
+class ImageRotationSessionVT;
 class PixelBufferConformerCV;
 class WebCoreDecompressionSession;
 
@@ -67,13 +64,14 @@ public:
 
     const String& mimeType() const { return m_mimeType; }
 
+    void setEncodedDataStatusChangeCallback(WTF::Function<void(EncodedDataStatus)>&&) final;
     EncodedDataStatus encodedDataStatus() const final;
     IntSize size() const final;
     size_t frameCount() const final;
     RepetitionCount repetitionCount() const final;
     String uti() const final;
     String filenameExtension() const final;
-    std::optional<IntPoint> hotSpot() const final { return std::nullopt; }
+    Optional<IntPoint> hotSpot() const final { return WTF::nullopt; }
 
     IntSize frameSizeAtIndex(size_t, SubsamplingLevel = SubsamplingLevel::Default) const final;
     bool frameIsCompleteAtIndex(size_t) const final;
@@ -91,14 +89,6 @@ public:
     bool isAllDataReceived() const final { return m_isAllDataReceived; }
     void clearFrameBufferCache(size_t) final;
 
-    struct RotationProperties {
-        bool flipX { false };
-        bool flipY { false };
-        unsigned angle { 0 };
-
-        bool isIdentity() const { return !flipX && !flipY && !angle; }
-    };
-
 private:
     ImageDecoderAVFObjC(SharedBuffer&, const String& mimeType, AlphaOption, GammaAndColorProfileOption);
 
@@ -110,22 +100,22 @@ private:
     void setTrack(AVAssetTrack *);
 
     const ImageDecoderAVFObjCSample* sampleAtIndex(size_t) const;
+    bool sampleIsComplete(const ImageDecoderAVFObjCSample&) const;
 
     String m_mimeType;
     String m_uti;
     RetainPtr<AVURLAsset> m_asset;
     RetainPtr<AVAssetTrack> m_track;
     RetainPtr<WebCoreSharedBufferResourceLoaderDelegate> m_loader;
-    RetainPtr<VTImageRotationSessionRef> m_rotationSession;
-    RetainPtr<CVPixelBufferPoolRef> m_rotationPool;
+    std::unique_ptr<ImageRotationSessionVT> m_imageRotationSession;
     Ref<WebCoreDecompressionSession> m_decompressionSession;
+    WTF::Function<void(EncodedDataStatus)> m_encodedDataStatusChangedCallback;
 
     SampleMap m_sampleData;
     DecodeOrderSampleMap::iterator m_cursor;
     Lock m_sampleGeneratorLock;
     bool m_isAllDataReceived { false };
-    std::optional<IntSize> m_size;
-    std::optional<RotationProperties> m_rotation;
+    Optional<IntSize> m_size;
 };
 
 }

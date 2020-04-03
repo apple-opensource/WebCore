@@ -31,14 +31,15 @@
 
 #include "EventTarget.h"
 #include "InspectorWebAgentBase.h"
-#include <inspector/InspectorBackendDispatchers.h>
-#include <inspector/InspectorFrontendDispatchers.h>
+#include "Timer.h"
+#include <JavaScriptCore/InspectorBackendDispatchers.h>
+#include <JavaScriptCore/InspectorFrontendDispatchers.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/JSONValues.h>
 #include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
-#include <wtf/text/AtomicString.h>
+#include <wtf/text/AtomString.h>
 
 namespace Inspector {
 class InjectedScriptManager;
@@ -50,7 +51,7 @@ class JSValue;
 }
 
 namespace WebCore {
-    
+
 class AccessibilityObject;
 class CharacterData;
 class DOMEditor;
@@ -62,9 +63,12 @@ class FloatQuad;
 class Frame;
 class InspectorHistory;
 class InspectorOverlay;
-class InspectorPageAgent;
+#if ENABLE(VIDEO)
+class HTMLMediaElement;
+#endif
 class HitTestResult;
 class Node;
+class Page;
 class PseudoElement;
 class RevalidateStyleAttributeTask;
 class ShadowRoot;
@@ -72,32 +76,12 @@ class ShadowRoot;
 struct HighlightConfig;
 
 typedef String ErrorString;
-typedef int BackendNodeId;
-
-struct EventListenerInfo {
-    EventListenerInfo(Node* node, const AtomicString& eventType, EventListenerVector&& eventListenerVector)
-        : node(node)
-        , eventType(eventType)
-        , eventListenerVector(WTFMove(eventListenerVector))
-    {
-    }
-
-    Node* node;
-    const AtomicString eventType;
-    const EventListenerVector eventListenerVector;
-};
 
 class InspectorDOMAgent final : public InspectorAgentBase, public Inspector::DOMBackendDispatcherHandler {
     WTF_MAKE_NONCOPYABLE(InspectorDOMAgent);
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    struct DOMListener {
-        virtual ~DOMListener() = default;
-        virtual void didRemoveDOMNode(Node&, int nodeId) = 0;
-        virtual void didModifyDOMAttr(Element&) = 0;
-    };
-
-    InspectorDOMAgent(WebAgentContext&, InspectorPageAgent*, InspectorOverlay*);
+    InspectorDOMAgent(PageAgentContext&, InspectorOverlay*);
     virtual ~InspectorDOMAgent();
 
     static String toErrorString(ExceptionCode);
@@ -123,19 +107,22 @@ public:
     void setOuterHTML(ErrorString&, int nodeId, const String& outerHTML) override;
     void insertAdjacentHTML(ErrorString&, int nodeId, const String& position, const String& html) override;
     void setNodeValue(ErrorString&, int nodeId, const String& value) override;
-    void getEventListenersForNode(ErrorString&, int nodeId, const WTF::String* objectGroup, RefPtr<JSON::ArrayOf<Inspector::Protocol::DOM::EventListener>>& listenersArray) override;
+    void getSupportedEventNames(ErrorString&, RefPtr<JSON::ArrayOf<String>>& eventNames) override;
+    void getDataBindingsForNode(ErrorString&, int nodeId, RefPtr<JSON::ArrayOf<Inspector::Protocol::DOM::DataBinding>>& dataArray) override;
+    void getAssociatedDataForNode(ErrorString&, int nodeId, Optional<String>& associatedData) override;
+    void getEventListenersForNode(ErrorString&, int nodeId, RefPtr<JSON::ArrayOf<Inspector::Protocol::DOM::EventListener>>& listenersArray) override;
     void setEventListenerDisabled(ErrorString&, int eventListenerId, bool disabled) override;
+    void setBreakpointForEventListener(ErrorString&, int eventListenerId) override;
+    void removeBreakpointForEventListener(ErrorString&, int eventListenerId) override;
     void getAccessibilityPropertiesForNode(ErrorString&, int nodeId, RefPtr<Inspector::Protocol::DOM::AccessibilityProperties>& axProperties) override;
-    void performSearch(ErrorString&, const String& whitespaceTrimmedQuery, const JSON::Array* nodeIds, String* searchId, int* resultCount) override;
+    void performSearch(ErrorString&, const String& query, const JSON::Array* nodeIds, const bool* caseSensitive, String* searchId, int* resultCount) override;
     void getSearchResults(ErrorString&, const String& searchId, int fromIndex, int toIndex, RefPtr<JSON::ArrayOf<int>>&) override;
     void discardSearchResults(ErrorString&, const String& searchId) override;
     void resolveNode(ErrorString&, int nodeId, const String* objectGroup, RefPtr<Inspector::Protocol::Runtime::RemoteObject>& result) override;
     void getAttributes(ErrorString&, int nodeId, RefPtr<JSON::ArrayOf<String>>& result) override;
-    void setInspectModeEnabled(ErrorString&, bool enabled, const JSON::Object* highlightConfig) override;
+    void setInspectModeEnabled(ErrorString&, bool enabled, const JSON::Object* highlightConfig, const bool* showRulers) override;
     void requestNode(ErrorString&, const String& objectId, int* nodeId) override;
     void pushNodeByPathToFrontend(ErrorString&, const String& path, int* nodeId) override;
-    void pushNodeByBackendIdToFrontend(ErrorString&, BackendNodeId, int* nodeId) override;
-    void releaseBackendNodeIds(ErrorString&, const String& nodeGroup) override;
     void hideHighlight(ErrorString&) override;
     void highlightRect(ErrorString&, int x, int y, int width, int height, const JSON::Object* color, const JSON::Object* outlineColor, const bool* usePageCoordinates) override;
     void highlightQuad(ErrorString&, const JSON::Array& quad, const JSON::Object* color, const JSON::Object* outlineColor, const bool* usePageCoordinates) override;
@@ -150,17 +137,16 @@ public:
     void focus(ErrorString&, int nodeId) override;
     void setInspectedNode(ErrorString&, int nodeId) override;
 
-    void getEventListeners(Node*, Vector<EventListenerInfo>& listenersArray, bool includeAncestors);
-
-
     // InspectorInstrumentation
+    int identifierForNode(Node&);
+    void addEventListenersToNode(Node&);
     void didInsertDOMNode(Node&);
     void didRemoveDOMNode(Node&);
-    void willModifyDOMAttr(Element&, const AtomicString& oldValue, const AtomicString& newValue);
-    void didModifyDOMAttr(Element&, const AtomicString& name, const AtomicString& value);
-    void didRemoveDOMAttr(Element&, const AtomicString& name);
+    void willModifyDOMAttr(Element&, const AtomString& oldValue, const AtomString& newValue);
+    void didModifyDOMAttr(Element&, const AtomString& name, const AtomString& value);
+    void didRemoveDOMAttr(Element&, const AtomString& name);
     void characterDataModified(CharacterData&);
-    void didInvalidateStyleAttr(Node&);
+    void didInvalidateStyleAttr(Element&);
     void didPushShadowRoot(Element& host, ShadowRoot&);
     void willPopShadowRoot(Element& host, ShadowRoot&);
     void didChangeCustomElementState(Element&);
@@ -170,21 +156,19 @@ public:
     void pseudoElementCreated(PseudoElement&);
     void pseudoElementDestroyed(PseudoElement&);
     void didAddEventListener(EventTarget&);
-    void willRemoveEventListener(EventTarget&, const AtomicString& eventType, EventListener&, bool capture);
-    bool isEventListenerDisabled(EventTarget&, const AtomicString& eventType, EventListener&, bool capture);
+    void willRemoveEventListener(EventTarget&, const AtomString& eventType, EventListener&, bool capture);
+    bool isEventListenerDisabled(EventTarget&, const AtomString& eventType, EventListener&, bool capture);
+    void eventDidResetAfterDispatch(const Event&);
 
     // Callbacks that don't directly correspond to an instrumentation entry point.
     void setDocument(Document*);
     void releaseDanglingNodes();
-    void mainFrameDOMContentLoaded();
 
     void styleAttributeInvalidated(const Vector<Element*>& elements);
 
     int pushNodeToFrontend(ErrorString&, int documentNodeId, Node*);
     Node* nodeForId(int nodeId);
     int boundNodeId(const Node*);
-    void setDOMListener(DOMListener*);
-    BackendNodeId backendNodeIdForNode(Node*, const String& nodeGroup);
 
     static String documentURLString(Document*);
 
@@ -211,12 +195,16 @@ public:
     static Node* scriptValueAsNode(JSC::JSValue);
     static JSC::JSValue nodeAsScriptValue(JSC::ExecState&, Node*);
 
-    // Methods called from other agents.
-    InspectorPageAgent* pageAgent() { return m_pageAgent; }
+    bool hasBreakpointForEventListener(EventTarget&, const AtomString& eventType, EventListener&, bool capture);
+    int idForEventListener(EventTarget&, const AtomString& eventType, EventListener&, bool capture);
 
 private:
+#if ENABLE(VIDEO)
+    void mediaMetricsTimerFired();
+#endif
+
     void highlightMousedOverNode();
-    void setSearchingForNode(ErrorString&, bool enabled, const JSON::Object* highlightConfig);
+    void setSearchingForNode(ErrorString&, bool enabled, const JSON::Object* highlightConfig, bool showRulers);
     std::unique_ptr<HighlightConfig> highlightConfigFromInspectorObject(ErrorString&, const JSON::Object* highlightInspectorObject);
 
     // Node-related methods.
@@ -234,9 +222,9 @@ private:
     Ref<JSON::ArrayOf<String>> buildArrayForElementAttributes(Element*);
     Ref<JSON::ArrayOf<Inspector::Protocol::DOM::Node>> buildArrayForContainerChildren(Node* container, int depth, NodeToIdMap* nodesMap);
     RefPtr<JSON::ArrayOf<Inspector::Protocol::DOM::Node>> buildArrayForPseudoElements(const Element&, NodeToIdMap* nodesMap);
-    Ref<Inspector::Protocol::DOM::EventListener> buildObjectForEventListener(const RegisteredEventListener&, int identifier, const AtomicString& eventType, Node*, const String* objectGroupId, bool disabled = false);
+    Ref<Inspector::Protocol::DOM::EventListener> buildObjectForEventListener(const RegisteredEventListener&, int identifier, EventTarget&, const AtomString& eventType, bool disabled, bool hasBreakpoint);
     RefPtr<Inspector::Protocol::DOM::AccessibilityProperties> buildObjectForAccessibilityProperties(Node*);
-    void processAccessibilityChildren(RefPtr<AccessibilityObject>&&, RefPtr<JSON::ArrayOf<int>>&&);
+    void processAccessibilityChildren(AccessibilityObject&, JSON::ArrayOf<int>&);
     
     Node* nodeForPath(const String& path);
     Node* nodeForObjectId(const String& objectId);
@@ -248,53 +236,86 @@ private:
     Inspector::InjectedScriptManager& m_injectedScriptManager;
     std::unique_ptr<Inspector::DOMFrontendDispatcher> m_frontendDispatcher;
     RefPtr<Inspector::DOMBackendDispatcher> m_backendDispatcher;
-    InspectorPageAgent* m_pageAgent { nullptr };
-
+    Page& m_inspectedPage;
     InspectorOverlay* m_overlay { nullptr };
-    DOMListener* m_domListener { nullptr };
     NodeToIdMap m_documentNodeToIdMap;
-    typedef HashMap<RefPtr<Node>, BackendNodeId> NodeToBackendIdMap;
-    HashMap<String, NodeToBackendIdMap> m_nodeGroupToBackendIdMap;
     // Owns node mappings for dangling nodes.
     Vector<std::unique_ptr<NodeToIdMap>> m_danglingNodeToIdMaps;
     HashMap<int, Node*> m_idToNode;
     HashMap<int, NodeToIdMap*> m_idToNodesMap;
     HashSet<int> m_childrenRequested;
-    HashMap<BackendNodeId, std::pair<Node*, String>> m_backendIdToNode;
     int m_lastNodeId { 1 };
-    BackendNodeId m_lastBackendNodeId { -1 };
     RefPtr<Document> m_document;
     typedef HashMap<String, Vector<RefPtr<Node>>> SearchResults;
     SearchResults m_searchResults;
     std::unique_ptr<RevalidateStyleAttributeTask> m_revalidateStyleAttrTask;
     RefPtr<Node> m_nodeToFocus;
     RefPtr<Node> m_mousedOverNode;
+    RefPtr<Node> m_inspectedNode;
     std::unique_ptr<HighlightConfig> m_inspectModeHighlightConfig;
     std::unique_ptr<InspectorHistory> m_history;
     std::unique_ptr<DOMEditor> m_domEditor;
     bool m_searchingForNode { false };
     bool m_suppressAttributeModifiedEvent { false };
+    bool m_suppressEventListenerChangedEvent { false };
     bool m_documentRequested { false };
 
-    struct InspectorEventListener {
-        int identifier { 1 };
-        RefPtr<EventTarget> eventTarget;
-        AtomicString eventType;
-        bool useCapture { false };
-        bool disabled { false };
+#if ENABLE(VIDEO)
+    Timer m_mediaMetricsTimer;
+    struct MediaMetrics {
+        unsigned displayCompositedFrames { 0 };
+        bool isPowerEfficient { false };
 
-        InspectorEventListener() { }
+        MediaMetrics() { }
 
-        InspectorEventListener(int identifier, EventTarget& eventTarget, const AtomicString& eventType, bool useCapture)
-            : identifier(identifier)
-            , eventTarget(&eventTarget)
-            , eventType(eventType)
-            , useCapture(useCapture)
+        MediaMetrics(unsigned displayCompositedFrames)
+            : displayCompositedFrames(displayCompositedFrames)
         {
         }
     };
 
-    HashMap<EventListener*, InspectorEventListener> m_eventListenerEntries;
+    // The pointer key for this map should not be used for anything other than matching.
+    HashMap<HTMLMediaElement*, MediaMetrics> m_mediaMetrics;
+#endif
+
+    struct InspectorEventListener {
+        int identifier { 1 };
+        RefPtr<EventTarget> eventTarget;
+        RefPtr<EventListener> eventListener;
+        AtomString eventType;
+        bool useCapture { false };
+        bool disabled { false };
+        bool hasBreakpoint { false };
+
+        InspectorEventListener() { }
+
+        InspectorEventListener(int identifier, EventTarget& target, const AtomString& type, EventListener& listener, bool capture)
+            : identifier(identifier)
+            , eventTarget(&target)
+            , eventListener(&listener)
+            , eventType(type)
+            , useCapture(capture)
+        {
+        }
+
+        bool matches(EventTarget& target, const AtomString& type, EventListener& listener, bool capture)
+        {
+            if (eventTarget.get() != &target)
+                return false;
+            if (eventListener.get() != &listener)
+                return false;
+            if (eventType != type)
+                return false;
+            if (useCapture != capture)
+                return false;
+            return true;
+        }
+    };
+
+    friend class EventFiredCallback;
+
+    HashSet<const Event*> m_dispatchedEvents;
+    HashMap<int, InspectorEventListener> m_eventListenerEntries;
     int m_lastEventListenerId { 1 };
 };
 

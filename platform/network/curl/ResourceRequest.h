@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2003, 2006 Apple Inc.  All rights reserved.
  * Copyright (C) 2006 Samuel Weinig <sam.weinig@gmail.com>
+ * Copyright (C) 2019 Sony Interactive Entertainment Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,23 +36,23 @@ namespace WebCore {
 class ResourceRequest : public ResourceRequestBase {
 public:
     ResourceRequest(const String& url)
-        : ResourceRequestBase(URL(ParsedURLString, url), UseProtocolCachePolicy)
+        : ResourceRequestBase(URL({ }, url), ResourceRequestCachePolicy::UseProtocolCachePolicy)
     {
     }
 
     ResourceRequest(const URL& url)
-        : ResourceRequestBase(url, UseProtocolCachePolicy)
+        : ResourceRequestBase(url, ResourceRequestCachePolicy::UseProtocolCachePolicy)
     {
     }
 
-    ResourceRequest(const URL& url, const String& referrer, ResourceRequestCachePolicy policy = UseProtocolCachePolicy)
+    ResourceRequest(const URL& url, const String& referrer, ResourceRequestCachePolicy policy = ResourceRequestCachePolicy::UseProtocolCachePolicy)
         : ResourceRequestBase(url, policy)
     {
         setHTTPReferrer(referrer);
     }
 
     ResourceRequest()
-        : ResourceRequestBase(URL(), UseProtocolCachePolicy)
+        : ResourceRequestBase(URL(), ResourceRequestCachePolicy::UseProtocolCachePolicy)
     {
     }
 
@@ -60,7 +61,7 @@ public:
     {
     }
 
-    void updateFromDelegatePreservingOldProperties(const ResourceRequest& delegateProvidedRequest) { *this = delegateProvidedRequest; }
+    WEBCORE_EXPORT void updateFromDelegatePreservingOldProperties(const ResourceRequest&);
 
     // Needed for compatibility.
     CFURLRequestRef cfURLRequest(HTTPBodyUpdatePolicy) const { return 0; }
@@ -68,6 +69,9 @@ public:
     // The following two stubs are for compatibility with CFNetwork, and are not used.
     static bool httpPipeliningEnabled() { return false; }
     static void setHTTPPipeliningEnabled(bool) { }
+
+    template<class Encoder> void encodeWithPlatformData(Encoder&) const;
+    template<class Decoder> bool decodeWithPlatformData(Decoder&);
 
 private:
     friend class ResourceRequestBase;
@@ -81,5 +85,20 @@ private:
 
     static bool s_httpPipeliningEnabled;
 };
+
+template<class Encoder>
+void ResourceRequest::encodeWithPlatformData(Encoder& encoder) const
+{
+    encodeBase(encoder);
+}
+
+template<class Decoder>
+bool ResourceRequest::decodeWithPlatformData(Decoder& decoder)
+{
+    if (!decodeBase(decoder))
+        return false;
+
+    return true;
+}
 
 } // namespace WebCore

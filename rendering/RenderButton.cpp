@@ -27,10 +27,11 @@
 #include "HTMLNames.h"
 #include "RenderTextFragment.h"
 #include "RenderTheme.h"
+#include "RenderTreeBuilder.h"
 #include "StyleInheritedData.h"
 #include <wtf/IsoMallocInlines.h>
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 #include "RenderThemeIOS.h"
 #endif
 
@@ -62,34 +63,15 @@ bool RenderButton::hasLineIfEmpty() const
     return is<HTMLInputElement>(formControlElement());
 }
 
-void RenderButton::addChild(RenderPtr<RenderObject> newChild, RenderObject* beforeChild)
+void RenderButton::setInnerRenderer(RenderBlock& innerRenderer)
 {
-    if (!m_inner) {
-        // Create an anonymous block.
-        ASSERT(!firstChild());
-        auto newInner = createAnonymousBlock(style().display());
-        updateAnonymousChildStyle(*newInner, newInner->mutableStyle());
-        m_inner = makeWeakPtr(*newInner);
-        RenderFlexibleBox::addChild(WTFMove(newInner));
-    }    
-    m_inner->addChild(WTFMove(newChild), beforeChild);
-}
-
-RenderPtr<RenderObject> RenderButton::takeChild(RenderObject& oldChild)
-{
-    // m_inner should be the only child, but checking for direct children who
-    // are not m_inner prevents security problems when that assumption is
-    // violated.
-    if (&oldChild == m_inner || !m_inner || oldChild.parent() == this) {
-        ASSERT(&oldChild == m_inner || !m_inner);
-        return RenderFlexibleBox::takeChild(oldChild);
-    }
-    return m_inner->takeChild(oldChild);
+    ASSERT(!m_inner.get());
+    m_inner = makeWeakPtr(innerRenderer);
+    updateAnonymousChildStyle(m_inner->mutableStyle());
 }
     
-void RenderButton::updateAnonymousChildStyle(const RenderObject& child, RenderStyle& childStyle) const
+void RenderButton::updateAnonymousChildStyle(RenderStyle& childStyle) const
 {
-    ASSERT_UNUSED(child, !m_inner || &child == m_inner);
     childStyle.setFlexGrow(1.0f);
     // min-width: 0; is needed for correct shrinking.
     childStyle.setMinWidth(Length(0, Fixed));
@@ -122,7 +104,11 @@ void RenderButton::setText(const String& str)
     if (!m_buttonText) {
         auto newButtonText = createRenderer<RenderTextFragment>(document(), str);
         m_buttonText = makeWeakPtr(*newButtonText);
-        addChild(WTFMove(newButtonText));
+        // FIXME: This mutation should go through the normal RenderTreeBuilder path.
+        if (RenderTreeBuilder::current())
+            RenderTreeBuilder::current()->attach(*this, WTFMove(newButtonText));
+        else
+            RenderTreeBuilder(*document().renderView()).attach(*this, WTFMove(newButtonText));
         return;
     }
 
@@ -130,7 +116,10 @@ void RenderButton::setText(const String& str)
         m_buttonText->setText(str.impl());
         return;
     }
-    m_buttonText->removeFromParentAndDestroy();
+    if (RenderTreeBuilder::current())
+        RenderTreeBuilder::current()->destroy(*m_buttonText);
+    else
+        RenderTreeBuilder(*document().renderView()).destroy(*m_buttonText);
 }
 
 String RenderButton::text() const
@@ -154,7 +143,21 @@ LayoutRect RenderButton::controlClipRect(const LayoutPoint& additionalOffset) co
     return LayoutRect(additionalOffset.x() + borderLeft(), additionalOffset.y() + borderTop(), width() - borderLeft() - borderRight(), height() - borderTop() - borderBottom());
 }
 
-#if PLATFORM(IOS)
+static int synthesizedBaselineFromContentBox(const RenderBox& box, LineDirectionMode direction)
+{
+    return direction == HorizontalLine ? box.borderTop() + box.paddingTop() + box.contentHeight() : box.borderRight() + box.paddingRight() + box.contentWidth();
+}
+
+int RenderButton::baselinePosition(FontBaseline, bool, LineDirectionMode direction, LinePositionMode) const
+{
+    // We cannot rely on RenderFlexibleBox::baselinePosition() because of flexboxes have some special behavior
+    // regarding baselines that shouldn't apply to buttons.
+    int baseline = firstLineBaseline().valueOr(synthesizedBaselineFromContentBox(*this, direction));
+    int marginAscent = direction == HorizontalLine ? marginTop() : marginRight();
+    return baseline + marginAscent;
+}
+
+#if PLATFORM(IOS_FAMILY)
 void RenderButton::layout()
 {
     RenderFlexibleBox::layout();

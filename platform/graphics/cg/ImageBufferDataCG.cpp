@@ -31,9 +31,9 @@
 #include "GraphicsContext.h"
 #include "IntRect.h"
 #include <CoreGraphics/CoreGraphics.h>
-#include <runtime/JSCInlines.h>
-#include <runtime/TypedArrayInlines.h>
-#include <runtime/Uint8ClampedArray.h>
+#include <JavaScriptCore/JSCInlines.h>
+#include <JavaScriptCore/TypedArrayInlines.h>
+#include <JavaScriptCore/Uint8ClampedArray.h>
 #include <wtf/Assertions.h>
 
 #if USE(ACCELERATE)
@@ -47,7 +47,7 @@
 #endif
 
 // CA uses ARGB32 for textures and ARGB32 -> ARGB32 resampling is optimized.
-#define USE_ARGB32 PLATFORM(IOS)
+#define USE_ARGB32 PLATFORM(IOS_FAMILY)
 
 namespace WebCore {
 
@@ -133,7 +133,7 @@ RefPtr<Uint8ClampedArray> ImageBufferData::getData(AlphaPremultiplication output
     if (area.hasOverflowed())
         return nullptr;
 
-    auto result = Uint8ClampedArray::createUninitialized(area.unsafeGet());
+    auto result = Uint8ClampedArray::tryCreateUninitialized(area.unsafeGet());
     uint8_t* resultData = result ? result->data() : nullptr;
     if (!resultData)
         return nullptr;

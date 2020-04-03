@@ -20,12 +20,13 @@
 
 #pragma once
 
-#include "URLHash.h"
+#include "CSSPropertyNames.h"
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
 #include <wtf/TypeCasts.h>
+#include <wtf/URLHash.h>
 
 namespace WebCore {
 
@@ -105,15 +106,15 @@ public:
     bool isLineBoxContainValue() const { return m_classType == LineBoxContainClass; }
     bool isCalcValue() const {return m_classType == CalculationClass; }
     bool isFilterImageValue() const { return m_classType == FilterImageClass; }
+#if ENABLE(CSS_PAINTING_API)
+    bool isPaintImageValue() const { return m_classType == PaintImageClass; }
+#endif
     bool isContentDistributionValue() const { return m_classType == CSSContentDistributionClass; }
     bool isGridAutoRepeatValue() const { return m_classType == GridAutoRepeatClass; }
+    bool isGridIntegerRepeatValue() const { return m_classType == GridIntegerRepeatClass; }
     bool isGridTemplateAreasValue() const { return m_classType == GridTemplateAreasClass; }
     bool isGridLineNamesValue() const { return m_classType == GridLineNamesClass; }
     bool isUnicodeRangeValue() const { return m_classType == UnicodeRangeClass; }
-
-#if ENABLE(CSS_ANIMATIONS_LEVEL_2)
-    bool isAnimationTriggerScrollValue() const { return m_classType == AnimationTriggerScrollClass; }
-#endif
 
     bool isCustomIdentValue() const { return m_classType == CustomIdentClass; }
     bool isVariableReferenceValue() const { return m_classType == VariableReferenceClass; }
@@ -124,6 +125,11 @@ public:
     Ref<DeprecatedCSSOMValue> createDeprecatedCSSOMWrapper(CSSStyleDeclaration&) const;
 
     bool traverseSubresources(const WTF::Function<bool (const CachedResource&)>& handler) const;
+
+    // What properties does this value rely on (eg, font-size for em units)
+    void collectDirectComputationalDependencies(HashSet<CSSPropertyID>&) const;
+    // What properties in the root element does this value rely on (eg. font-size for rem units)
+    void collectDirectRootComputationalDependencies(HashSet<CSSPropertyID>&) const;
 
     bool equals(const CSSValue&) const;
     bool operator==(const CSSValue& other) const { return equals(other); }
@@ -140,6 +146,9 @@ protected:
 
         // Image generator classes.
         CanvasClass,
+#if ENABLE(CSS_PAINTING_API)
+        PaintImageClass,
+#endif
         NamedImageClass,
         CrossfadeClass,
         FilterImageClass,
@@ -176,12 +185,9 @@ protected:
         LineBoxContainClass,
         CalculationClass,
         GridTemplateAreasClass,
-#if ENABLE(CSS_ANIMATIONS_LEVEL_2)
-        AnimationTriggerScrollClass,
-#endif
 
         CSSContentDistributionClass,
-        
+
         CustomIdentClass,
 
         CustomPropertyClass,
@@ -195,6 +201,7 @@ protected:
         ImageSetClass,
         GridLineNamesClass,
         GridAutoRepeatClass,
+        GridIntegerRepeatClass,
         // Do not append non-list class types here.
     };
 
@@ -272,7 +279,7 @@ inline bool compareCSSValue(const Ref<CSSValueType>& first, const Ref<CSSValueTy
     return first.get().equals(second);
 }
 
-typedef HashMap<AtomicString, RefPtr<CSSCustomPropertyValue>> CustomPropertyValueMap;
+typedef HashMap<AtomString, RefPtr<CSSCustomPropertyValue>> CustomPropertyValueMap;
 
 } // namespace WebCore
 

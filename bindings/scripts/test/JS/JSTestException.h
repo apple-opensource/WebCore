@@ -22,7 +22,7 @@
 
 #include "JSDOMWrapper.h"
 #include "TestException.h"
-#include <runtime/ErrorPrototype.h>
+#include <JavaScriptCore/ErrorPrototype.h>
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
@@ -50,6 +50,7 @@ public:
     }
 
     static JSC::JSValue getConstructor(JSC::VM&, const JSC::JSGlobalObject*);
+    static void heapSnapshot(JSCell*, JSC::HeapSnapshotBuilder&);
 protected:
     JSTestException(JSC::Structure*, JSDOMGlobalObject&, Ref<TestException>&&);
 
@@ -58,7 +59,7 @@ protected:
 
 class JSTestExceptionOwner : public JSC::WeakHandleOwner {
 public:
-    virtual bool isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, JSC::SlotVisitor&);
+    virtual bool isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, JSC::SlotVisitor&, const char**);
     virtual void finalize(JSC::Handle<JSC::Unknown>, void* context);
 };
 

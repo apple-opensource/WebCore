@@ -42,6 +42,7 @@
 #include "GlyphBuffer.h"
 #include "OpenTypeTypes.h"
 #include "RefPtrCairo.h"
+#include "SurrogatePairAwareTextIterator.h"
 #include "UTF16UChar32Iterator.h"
 #include <cairo-ft.h>
 #include <cairo.h>
@@ -49,7 +50,6 @@
 #include <ft2build.h>
 #include FT_TRUETYPE_TABLES_H
 #include FT_TRUETYPE_TAGS_H
-#include <unicode/normlzr.h>
 #include <wtf/MathExtras.h>
 
 namespace WebCore {
@@ -83,7 +83,7 @@ void Font::platformInit()
     float descent = narrowPrecisionToFloat(fontExtents.descent);
     float capHeight = narrowPrecisionToFloat(fontExtents.height);
     float lineGap = narrowPrecisionToFloat(fontExtents.height - fontExtents.ascent - fontExtents.descent);
-    std::optional<float> xHeight;
+    Optional<float> xHeight;
 
     {
         CairoFtFaceLocker cairoFtFaceLocker(m_platformData.scaledFont());
@@ -109,7 +109,7 @@ void Font::platformInit()
     if (!xHeight) {
         cairo_text_extents_t textExtents;
         cairo_scaled_font_text_extents(m_platformData.scaledFont(), "x", &textExtents);
-        xHeight = narrowPrecisionToFloat((platformData().orientation() == Horizontal) ? textExtents.height : textExtents.width);
+        xHeight = narrowPrecisionToFloat((platformData().orientation() == FontOrientation::Horizontal) ? textExtents.height : textExtents.width);
     }
 
     m_fontMetrics.setAscent(ascent);
@@ -121,9 +121,9 @@ void Font::platformInit()
 
     cairo_text_extents_t textExtents;
     cairo_scaled_font_text_extents(m_platformData.scaledFont(), " ", &textExtents);
-    m_spaceWidth = narrowPrecisionToFloat((platformData().orientation() == Horizontal) ? textExtents.x_advance : -textExtents.y_advance);
+    m_spaceWidth = narrowPrecisionToFloat((platformData().orientation() == FontOrientation::Horizontal) ? textExtents.x_advance : -textExtents.y_advance);
 
-    if ((platformData().orientation() == Vertical) && !isTextOrientationFallback()) {
+    if ((platformData().orientation() == FontOrientation::Vertical) && !isTextOrientationFallback()) {
         CairoFtFaceLocker cairoFtFaceLocker(m_platformData.scaledFont());
         FT_Face freeTypeFace = cairoFtFaceLocker.ftFace();
         m_fontMetrics.setUnitsPerEm(freeTypeFace->units_per_EM);
@@ -142,12 +142,13 @@ void Font::platformCharWidthInit()
 RefPtr<Font> Font::platformCreateScaledFont(const FontDescription& fontDescription, float scaleFactor) const
 {
     ASSERT(m_platformData.scaledFont());
-    FontDescription scaledFontDescription = fontDescription;
-    scaledFontDescription.setComputedSize(scaleFactor * fontDescription.computedSize());
     return Font::create(FontPlatformData(cairo_scaled_font_get_font_face(m_platformData.scaledFont()),
-        scaledFontDescription,
+        m_platformData.fcPattern(),
+        scaleFactor * fontDescription.computedSize(),
+        m_platformData.isFixedWidth(),
         m_platformData.syntheticBold(),
-        m_platformData.syntheticOblique()),
+        m_platformData.syntheticOblique(),
+        fontDescription.orientation()),
         origin(), Interstitial::No);
 }
 
@@ -182,37 +183,31 @@ float Font::platformWidthForGlyph(Glyph glyph) const
     cairo_glyph_t cairoGlyph = { glyph, 0, 0 };
     cairo_text_extents_t extents;
     cairo_scaled_font_glyph_extents(m_platformData.scaledFont(), &cairoGlyph, 1, &extents);
-    float width = platformData().orientation() == Horizontal ? extents.x_advance : -extents.y_advance;
+    float width = platformData().orientation() == FontOrientation::Horizontal ? extents.x_advance : -extents.y_advance;
     return width ? width : m_spaceWidth;
 }
 
-#if USE(HARFBUZZ)
-bool Font::canRenderCombiningCharacterSequence(const UChar* characters, size_t length) const
+bool Font::variantCapsSupportsCharacterForSynthesis(FontVariantCaps fontVariantCaps, UChar32) const
 {
-    if (!m_combiningCharacterSequenceSupport)
-        m_combiningCharacterSequenceSupport = std::make_unique<HashMap<String, bool>>();
-
-    WTF::HashMap<String, bool>::AddResult addResult = m_combiningCharacterSequenceSupport->add(String(characters, length), false);
-    if (!addResult.isNewEntry)
-        return addResult.iterator->value;
-
-    UErrorCode error = U_ZERO_ERROR;
-    Vector<UChar, 4> normalizedCharacters(length);
-    int32_t normalizedLength = unorm_normalize(characters, length, UNORM_NFC, UNORM_UNICODE_3_2, &normalizedCharacters[0], length, &error);
-    // Can't render if we have an error or no composition occurred.
-    if (U_FAILURE(error) || (static_cast<size_t>(normalizedLength) == length))
+    switch (fontVariantCaps) {
+    case FontVariantCaps::Small:
+    case FontVariantCaps::Petite:
+    case FontVariantCaps::AllSmall:
+    case FontVariantCaps::AllPetite:
         return false;
-
-    CairoFtFaceLocker cairoFtFaceLocker(m_platformData.scaledFont());
-    FT_Face face = cairoFtFaceLocker.ftFace();
-    if (!face)
-        return false;
-
-    if (FcFreeTypeCharIndex(face, normalizedCharacters[0]))
-        addResult.iterator->value = true;
-
-    return addResult.iterator->value;
+    default:
+        // Synthesis only supports the variant-caps values listed above.
+        return true;
+    }
 }
-#endif
+
+bool Font::platformSupportsCodePoint(UChar32 character, Optional<UChar32> variation) const
+{
+    CairoFtFaceLocker cairoFtFaceLocker(m_platformData.scaledFont());
+    if (FT_Face face = cairoFtFaceLocker.ftFace())
+        return variation ? !!FT_Face_GetCharVariantIndex(face, character, variation.value()) : !!FcFreeTypeCharIndex(face, character);
+
+    return false;
+}
 
 }

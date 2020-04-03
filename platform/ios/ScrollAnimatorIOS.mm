@@ -23,15 +23,17 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#include "ScrollAnimatorIOS.h"
+#import "config.h"
+#import "ScrollAnimatorIOS.h"
 
-#include "Frame.h"
-#include "RenderLayer.h"
-#include "ScrollableArea.h"
+#if PLATFORM(IOS_FAMILY)
+
+#import "Frame.h"
+#import "RenderLayer.h"
+#import "ScrollableArea.h"
 
 #if ENABLE(TOUCH_EVENTS)
-#include "PlatformTouchEventIOS.h"
+#import "PlatformTouchEventIOS.h"
 #endif
 
 namespace WebCore {
@@ -101,8 +103,9 @@ bool ScrollAnimatorIOS::handleTouchEvent(const PlatformTouchEvent& touchEvent)
         determineScrollableAreaForTouchSequence(touchDelta);
 
     if (!m_committedToScrollAxis) {
-        bool horizontallyScrollable = m_scrollableArea.scrollSize(HorizontalScrollbar);
-        bool verticallyScrollable = m_scrollableArea.scrollSize(VerticalScrollbar);
+        auto scrollSize = m_scrollableArea.maximumScrollPosition() - m_scrollableArea.minimumScrollPosition();
+        bool horizontallyScrollable = scrollSize.width();
+        bool verticallyScrollable = scrollSize.height();
 
         if (!horizontallyScrollable && !verticallyScrollable)
             return false;
@@ -185,3 +188,5 @@ void ScrollAnimatorIOS::determineScrollableAreaForTouchSequence(const IntSize& s
 #endif
 
 } // namespace WebCore
+
+#endif // PLATFORM(IOS_FAMILY)

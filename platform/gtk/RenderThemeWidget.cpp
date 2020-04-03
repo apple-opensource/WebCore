@@ -26,8 +26,6 @@
 #include "config.h"
 #include "RenderThemeWidget.h"
 
-#if GTK_CHECK_VERSION(3, 20, 0)
-
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
 
@@ -85,6 +83,8 @@ RenderThemeWidget& RenderThemeWidget::getOrCreate(Type widgetType)
             return std::make_unique<RenderThemeListView>();
         case RenderThemeWidget::Type::Icon:
             return std::make_unique<RenderThemeIcon>();
+        case RenderThemeWidget::Type::Window:
+            return std::make_unique<RenderThemeWindow>();
         }
         ASSERT_NOT_REACHED();
         return nullptr;
@@ -182,7 +182,7 @@ RenderThemeToggleButton::RenderThemeToggleButton(Type toggleType)
 
 RenderThemeButton::RenderThemeButton(Default isDefault)
 {
-    RenderThemeGadget::Info info = { RenderThemeGadget::Type::Generic, "button", { "text-button" } };
+    RenderThemeGadget::Info info = { RenderThemeGadget::Type::Button, "button", { "text-button" } };
     if (isDefault == Default::Yes)
         info.classList.append("default");
     m_button = RenderThemeGadget::create(info);
@@ -293,6 +293,9 @@ RenderThemeIcon::RenderThemeIcon()
 {
 }
 
-} // namepsace WebCore
+RenderThemeWindow::RenderThemeWindow()
+    : m_window(RenderThemeGadget::create({ RenderThemeGadget::Type::Generic, "window", { "background" } }))
+{
+}
 
-#endif // GTK_CHECK_VERSION(3, 20, 0)
+} // namepsace WebCore

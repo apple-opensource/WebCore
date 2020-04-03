@@ -38,7 +38,7 @@ class ArrayBufferView;
 
 namespace WebCore {
 
-class FontFace final : public RefCounted<FontFace>, private CSSFontFace::Client {
+class FontFace final : public RefCounted<FontFace>, public CanMakeWeakPtr<FontFace>, private CSSFontFace::Client {
 public:
     struct Descriptors {
         String style;
@@ -55,7 +55,7 @@ public:
     static Ref<FontFace> create(CSSFontFace&);
     virtual ~FontFace();
 
-    ExceptionOr<void> setFamily(const String&);
+    ExceptionOr<void> setFamily(Document&, const String&);
     ExceptionOr<void> setStyle(const String&);
     ExceptionOr<void> setWeight(const String&);
     ExceptionOr<void> setStretch(const String&);
@@ -88,8 +88,6 @@ public:
 
     void fontStateChanged(CSSFontFace&, CSSFontFace::Status oldState, CSSFontFace::Status newState) final;
 
-    WeakPtr<FontFace> createWeakPtr();
-
     void ref() final { RefCounted::ref(); }
     void deref() final { RefCounted::deref(); }
 
@@ -100,7 +98,6 @@ private:
     // Callback for LoadedPromise.
     FontFace& loadedPromiseResolve();
 
-    WeakPtrFactory<FontFace> m_weakPtrFactory;
     Ref<CSSFontFace> m_backing;
     LoadedPromise m_loadedPromise;
 };

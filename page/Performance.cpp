@@ -33,6 +33,7 @@
 #include "config.h"
 #include "Performance.h"
 
+#include "CustomHeaderFields.h"
 #include "Document.h"
 #include "DocumentLoader.h"
 #include "Event.h"
@@ -46,17 +47,20 @@
 #include "PerformanceUserTiming.h"
 #include "ResourceResponse.h"
 #include "ScriptExecutionContext.h"
-#include <wtf/CurrentTime.h>
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
 
-Performance::Performance(ScriptExecutionContext& context, MonotonicTime timeOrigin)
-    : ContextDestructionObserver(&context)
+WTF_MAKE_ISO_ALLOCATED_IMPL(Performance);
+
+Performance::Performance(ScriptExecutionContext* context, MonotonicTime timeOrigin)
+    : ContextDestructionObserver(context)
     , m_resourceTimingBufferFullTimer(*this, &Performance::resourceTimingBufferFullTimerFired)
     , m_timeOrigin(timeOrigin)
     , m_performanceTimelineTaskQueue(context)
 {
     ASSERT(m_timeOrigin);
+    ASSERT(context || m_performanceTimelineTaskQueue.isClosed());
 }
 
 Performance::~Performance() = default;
@@ -64,7 +68,7 @@ Performance::~Performance() = default;
 void Performance::contextDestroyed()
 {
     m_performanceTimelineTaskQueue.close();
-
+    m_resourceTimingBufferFullTimer.stop();
     ContextDestructionObserver::contextDestroyed();
 }
 
@@ -94,7 +98,7 @@ PerformanceNavigation* Performance::navigation()
 
     ASSERT(isMainThread());
     if (!m_navigation)
-        m_navigation = PerformanceNavigation::create(downcast<Document>(*scriptExecutionContext()).frame());
+        m_navigation = PerformanceNavigation::create(downcast<Document>(*scriptExecutionContext()).domWindow());
     return m_navigation.get();
 }
 
@@ -105,7 +109,7 @@ PerformanceTiming* Performance::timing()
 
     ASSERT(isMainThread());
     if (!m_timing)
-        m_timing = PerformanceTiming::create(downcast<Document>(*scriptExecutionContext()).frame());
+        m_timing = PerformanceTiming::create(downcast<Document>(*scriptExecutionContext()).domWindow());
     return m_timing.get();
 }
 
@@ -178,6 +182,8 @@ void Performance::setResourceTimingBufferSize(unsigned size)
 
 void Performance::addResourceTiming(ResourceTiming&& resourceTiming)
 {
+    ASSERT(scriptExecutionContext());
+
     auto entry = PerformanceResourceTiming::create(m_timeOrigin, WTFMove(resourceTiming));
 
     if (m_waitingForBackupBufferToBeProcessed) {
@@ -186,7 +192,7 @@ void Performance::addResourceTiming(ResourceTiming&& resourceTiming)
     }
 
     if (m_resourceTimingBufferFullFlag) {
-        // We fired resourcetimingbufferfull evnet but the author script didn't clear the buffer.
+        // We fired resourcetimingbufferfull event but the author script didn't clear the buffer.
         // Notify performance observers but don't add it to the buffer.
         queueEntry(entry.get());
         return;
@@ -211,12 +217,18 @@ bool Performance::isResourceTimingBufferFull() const
 
 void Performance::resourceTimingBufferFullTimerFired()
 {
+    ASSERT(scriptExecutionContext());
+
     while (!m_backupResourceTimingBuffer.isEmpty()) {
+        auto beforeCount = m_backupResourceTimingBuffer.size();
+
         auto backupBuffer = WTFMove(m_backupResourceTimingBuffer);
         ASSERT(m_backupResourceTimingBuffer.isEmpty());
 
-        m_resourceTimingBufferFullFlag = true;
-        dispatchEvent(Event::create(eventNames().resourcetimingbufferfullEvent, true, false));
+        if (isResourceTimingBufferFull()) {
+            m_resourceTimingBufferFullFlag = true;
+            dispatchEvent(Event::create(eventNames().resourcetimingbufferfullEvent, Event::CanBubble::No, Event::IsCancelable::No));
+        }
 
         if (m_resourceTimingBufferFullFlag) {
             for (auto& entry : backupBuffer)
@@ -238,6 +250,13 @@ void Performance::resourceTimingBufferFullTimerFired()
                 queueEntry(*entry);
             } else
                 m_backupResourceTimingBuffer.append(entry.copyRef());
+        }
+
+        auto afterCount = m_backupResourceTimingBuffer.size();
+
+        if (beforeCount <= afterCount) {
+            m_backupResourceTimingBuffer.clear();
+            break;
         }
     }
     m_waitingForBackupBufferToBeProcessed = false;

@@ -27,6 +27,7 @@
 namespace WebCore {
 
 class SVGStyleElement final : public SVGElement {
+    WTF_MAKE_ISO_ALLOCATED(SVGStyleElement);
 public:
     static Ref<SVGStyleElement> create(const QualifiedName&, Document&, bool createdByParser);
     virtual ~SVGStyleElement();
@@ -36,16 +37,16 @@ public:
     bool disabled() const;
     void setDisabled(bool);
                           
-    const AtomicString& type() const;
-    void setType(const AtomicString&);
+    const AtomString& type() const;
+    void setType(const AtomString&);
 
-    const AtomicString& media() const;
-    void setMedia(const AtomicString&);
+    const AtomString& media() const;
+    void setMedia(const AtomString&);
 
 private:
     SVGStyleElement(const QualifiedName&, Document&, bool createdByParser);
 
-    void parseAttribute(const QualifiedName&, const AtomicString&) final;
+    void parseAttribute(const QualifiedName&, const AtomString&) final;
     InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
     void removedFromAncestor(RemovalType, ContainerNode&) final;
     void childrenChanged(const ChildChange&) final;

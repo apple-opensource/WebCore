@@ -34,7 +34,7 @@
 #include <wtf/ListHashSet.h>
 #include <wtf/text/StringHash.h>
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 #include <MobileCoreServices/MobileCoreServices.h>
 #endif
 
@@ -43,11 +43,7 @@ namespace WebCore {
 #if PLATFORM(MAC)
 static NSBitmapImageFileType bitmapPNGFileType()
 {
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
     return NSBitmapImageFileTypePNG;
-#else
-    return NSPNGFileType;
-#endif
 }
 #endif // PLATFORM(MAC)
 
@@ -141,6 +137,24 @@ bool Pasteboard::shouldTreatCocoaTypeAsFile(const String& cocoaType)
 Pasteboard::FileContentState Pasteboard::fileContentState()
 {
     bool mayContainFilePaths = platformStrategies()->pasteboardStrategy()->getNumberOfFiles(m_pasteboardName);
+
+#if PLATFORM(IOS_FAMILY)
+    if (mayContainFilePaths) {
+        // On iOS, files are not written to the pasteboard using file URLs, so we need a heuristic to determine
+        // whether or not the pasteboard contains items that represent files. An example of when this gets tricky
+        // is differentiating between cases where the user is dragging a plain text file, versus selected text.
+        // Also, the presence of any other declared non-text data in the same item indicates that the content
+        // being dropped can take on another non-text format, which could be a file.
+        // If the item can't be treated as an attachment, it's very likely that the content being dropped is just
+        // an inline piece of text, with no files in the pasteboard (and therefore, no risk of leaking file paths
+        // to web content). In cases such as these, we should not suppress DataTransfer access.
+        auto items = platformStrategies()->pasteboardStrategy()->allPasteboardItemInfo(m_pasteboardName);
+        mayContainFilePaths = items.size() != 1 || notFound != items.findMatching([] (auto& item) {
+            return item.canBeTreatedAsAttachmentOrFile() || item.isNonTextType || item.containsFileURLAndFileUploadContent;
+        });
+    }
+#endif
+
     if (!mayContainFilePaths) {
         Vector<String> cocoaTypes;
         platformStrategies()->pasteboardStrategy()->getTypes(cocoaTypes, m_pasteboardName);
@@ -154,7 +168,7 @@ Pasteboard::FileContentState Pasteboard::fileContentState()
 #endif
             return cocoaType == String(kUTTypeURL);
         });
-        mayContainFilePaths = containsURL && !Pasteboard::canExposeURLToDOMWhenPasteboardContainsFiles(readString(ASCIILiteral("text/uri-list")));
+        mayContainFilePaths = containsURL && !Pasteboard::canExposeURLToDOMWhenPasteboardContainsFiles(readString("text/uri-list"_s));
     }
 
     // Enforce changeCount ourselves for security. We check after reading instead of before to be
@@ -233,9 +247,15 @@ void Pasteboard::read(PasteboardFileReader& reader)
     }
 }
 
+Vector<String> Pasteboard::readAllStrings(const String& type)
+{
+    return readPlatformValuesAsStrings(type, m_changeCount, m_pasteboardName);
+}
+
 String Pasteboard::readString(const String& type)
 {
-    return readPlatformValueAsString(type, m_changeCount, m_pasteboardName);
+    auto values = readPlatformValuesAsStrings(type, m_changeCount, m_pasteboardName);
+    return values.isEmpty() ? String() : values.first();
 }
 
 String Pasteboard::readStringInCustomData(const String& type)

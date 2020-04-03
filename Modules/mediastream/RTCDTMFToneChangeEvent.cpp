@@ -37,18 +37,18 @@ Ref<RTCDTMFToneChangeEvent> RTCDTMFToneChangeEvent::create(const String& tone)
     return adoptRef(*new RTCDTMFToneChangeEvent(tone));
 }
 
-Ref<RTCDTMFToneChangeEvent> RTCDTMFToneChangeEvent::create(const AtomicString& type, const Init& initializer, IsTrusted isTrusted)
+Ref<RTCDTMFToneChangeEvent> RTCDTMFToneChangeEvent::create(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
 {
     return adoptRef(*new RTCDTMFToneChangeEvent(type, initializer, isTrusted));
 }
 
 RTCDTMFToneChangeEvent::RTCDTMFToneChangeEvent(const String& tone)
-    : Event(eventNames().tonechangeEvent, false, false)
+    : Event(eventNames().tonechangeEvent, CanBubble::No, IsCancelable::No)
     , m_tone(tone)
 {
 }
 
-RTCDTMFToneChangeEvent::RTCDTMFToneChangeEvent(const AtomicString& type, const Init& initializer, IsTrusted isTrusted)
+RTCDTMFToneChangeEvent::RTCDTMFToneChangeEvent(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
     : Event(type, initializer, isTrusted)
     , m_tone(initializer.tone)
 {

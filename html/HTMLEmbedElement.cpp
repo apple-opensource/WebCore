@@ -37,9 +37,12 @@
 #include "RenderWidget.h"
 #include "Settings.h"
 #include "SubframeLoader.h"
+#include <wtf/IsoMallocInlines.h>
 #include <wtf/Ref.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLEmbedElement);
 
 using namespace HTMLNames;
 
@@ -87,14 +90,7 @@ RenderWidget* HTMLEmbedElement::renderWidgetLoadingPlugin() const
     return findWidgetRenderer(this);
 }
 
-bool HTMLEmbedElement::isPresentationAttribute(const QualifiedName& name) const
-{
-    if (name == hiddenAttr)
-        return true;
-    return HTMLPlugInImageElement::isPresentationAttribute(name);
-}
-
-void HTMLEmbedElement::collectStyleForPresentationAttribute(const QualifiedName& name, const AtomicString& value, MutableStyleProperties& style)
+void HTMLEmbedElement::collectStyleForPresentationAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
     if (name == hiddenAttr) {
         if (equalLettersIgnoringASCIICase(value, "yes") || equalLettersIgnoringASCIICase(value, "true")) {
@@ -105,13 +101,20 @@ void HTMLEmbedElement::collectStyleForPresentationAttribute(const QualifiedName&
         HTMLPlugInImageElement::collectStyleForPresentationAttribute(name, value, style);
 }
 
-void HTMLEmbedElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
+static bool hasTypeOrSrc(const HTMLEmbedElement& embed)
+{
+    return embed.hasAttributeWithoutSynchronization(typeAttr) || embed.hasAttributeWithoutSynchronization(srcAttr);
+}
+
+void HTMLEmbedElement::parseAttribute(const QualifiedName& name, const AtomString& value)
 {
     if (name == typeAttr) {
         m_serviceType = value.string().left(value.find(';')).convertToASCIILowercase();
         // FIXME: The only difference between this and HTMLObjectElement's corresponding
         // code is that HTMLObjectElement does setNeedsWidgetUpdate(true). Consider moving
         // this up to the HTMLPlugInImageElement to be shared.
+        if (renderer() && !hasTypeOrSrc(*this))
+            invalidateStyle();
     } else if (name == codeAttr) {
         m_url = stripLeadingAndTrailingHTMLSpaces(value);
         // FIXME: Why no call to updateImageLoaderWithNewURLSoon?
@@ -119,6 +122,8 @@ void HTMLEmbedElement::parseAttribute(const QualifiedName& name, const AtomicStr
     } else if (name == srcAttr) {
         m_url = stripLeadingAndTrailingHTMLSpaces(value);
         updateImageLoaderWithNewURLSoon();
+        if (renderer() && !hasTypeOrSrc(*this))
+            invalidateStyle();
         // FIXME: If both code and src attributes are specified, last one parsed/changed wins. That can't be right!
     } else
         HTMLPlugInImageElement::parseAttribute(name, value);
@@ -191,7 +196,7 @@ void HTMLEmbedElement::updateWidget(CreatePlugins createPlugins)
 
 bool HTMLEmbedElement::rendererIsNeeded(const RenderStyle& style)
 {
-    if (!hasAttributeWithoutSynchronization(typeAttr) && !hasAttributeWithoutSynchronization(srcAttr))
+    if (!hasTypeOrSrc(*this))
         return false;
 
     if (isImageType())
@@ -209,12 +214,6 @@ bool HTMLEmbedElement::rendererIsNeeded(const RenderStyle& style)
         }
     }
 
-#if ENABLE(DASHBOARD_SUPPORT)
-    // Workaround for <rdar://problem/6642221>.
-    if (document().settings().usesDashboardBackwardCompatibilityMode())
-        return true;
-#endif
-
     return HTMLPlugInImageElement::rendererIsNeeded(style);
 }
 
@@ -223,7 +222,7 @@ bool HTMLEmbedElement::isURLAttribute(const Attribute& attribute) const
     return attribute.name() == srcAttr || HTMLPlugInImageElement::isURLAttribute(attribute);
 }
 
-const AtomicString& HTMLEmbedElement::imageSourceURL() const
+const AtomString& HTMLEmbedElement::imageSourceURL() const
 {
     return attributeWithoutSynchronization(srcAttr);
 }

@@ -27,7 +27,6 @@
 
 #include "ColorSpace.h"
 #include "ExtendedColor.h"
-#include "PlatformExportMacros.h"
 #include <algorithm>
 #include <cmath>
 #include <unicode/uchar.h>
@@ -50,10 +49,7 @@ typedef D2D_VECTOR_4F D2D1_VECTOR_4F;
 #endif
 
 #if PLATFORM(GTK)
-typedef struct _GdkColor GdkColor;
-#ifndef GTK_API_VERSION_2
 typedef struct _GdkRGBA GdkRGBA;
-#endif
 #endif
 
 namespace WTF {
@@ -71,7 +67,7 @@ RGBA32 makePremultipliedRGBA(int r, int g, int b, int a, bool ceiling = true);
 RGBA32 makeUnPremultipliedRGBA(int r, int g, int b, int a);
 
 WEBCORE_EXPORT RGBA32 colorWithOverrideAlpha(RGBA32 color, float overrideAlpha);
-RGBA32 colorWithOverrideAlpha(RGBA32 color, std::optional<float> overrideAlpha);
+RGBA32 colorWithOverrideAlpha(RGBA32 color, Optional<float> overrideAlpha);
 
 WEBCORE_EXPORT RGBA32 makeRGBA32FromFloats(float r, float g, float b, float a);
 RGBA32 makeRGBAFromHSLA(double h, double s, double l, double a);
@@ -118,6 +114,14 @@ public:
     {
         if (valid)
             setRGB(color);
+    }
+
+    enum SemanticTag { Semantic };
+
+    Color(RGBA32 color, SemanticTag)
+    {
+        setRGB(color);
+        setIsSemantic();
     }
 
     Color(int r, int g, int b)
@@ -241,17 +245,17 @@ public:
     Color colorWithAlpha(float) const;
     Color opaqueColor() const { return colorWithAlpha(1.0f); }
 
+    // True if the color originated from a CSS semantic color name.
+    bool isSemantic() const { return !isExtended() && (m_colorData.rgbaAndFlags & isSemanticRBGAColorBit); }
+
 #if PLATFORM(GTK)
-    Color(const GdkColor&);
-    // We can't sensibly go back to GdkColor without losing the alpha value
-#ifndef GTK_API_VERSION_2
     Color(const GdkRGBA&);
     operator GdkRGBA() const;
-#endif
 #endif
 
 #if USE(CG)
     WEBCORE_EXPORT Color(CGColorRef);
+    WEBCORE_EXPORT Color(CGColorRef, SemanticTag);
 #endif
 
 #if PLATFORM(WIN)
@@ -274,7 +278,7 @@ public:
     static const RGBA32 cyan = 0xFF00FFFF;
     static const RGBA32 yellow = 0xFFFFFF00;
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     static const RGBA32 compositionFill = 0x3CAFC0E3;
 #else
     static const RGBA32 compositionFill = 0xFFE1DD55;
@@ -290,6 +294,7 @@ public:
     WEBCORE_EXPORT Color& operator=(Color&&);
 
     friend bool operator==(const Color& a, const Color& b);
+    friend bool equalIgnoringSemanticColor(const Color& a, const Color& b);
 
     static bool isBlackColor(const Color&);
     static bool isWhiteColor(const Color&);
@@ -297,6 +302,7 @@ public:
 private:
     void setRGB(int r, int g, int b) { setRGB(makeRGB(r, g, b)); }
     void setRGB(RGBA32);
+    void setIsSemantic() { m_colorData.rgbaAndFlags |= isSemanticRBGAColorBit; }
 
     // 0x_______00 is an ExtendedColor pointer.
     // 0x_______01 is an invalid RGBA32.
@@ -305,6 +311,7 @@ private:
     static const uint64_t invalidRGBAColor = 0x1;
     static const uint64_t validRGBAColorBit = 0x2;
     static const uint64_t validRGBAColor = 0x3;
+    static const uint64_t isSemanticRBGAColorBit = 0x4;
 
     static const uint64_t deletedHashValue = 0xFFFFFFFFFFFFFFFD;
     static const uint64_t emptyHashValue = 0xFFFFFFFFFFFFFFFB;
@@ -391,6 +398,11 @@ inline bool operator!=(const Color& a, const Color& b)
     return !(a == b);
 }
 
+inline bool equalIgnoringSemanticColor(const Color& a, const Color& b)
+{
+    return (a.m_colorData.rgbaAndFlags & ~Color::isSemanticRBGAColorBit) == (b.m_colorData.rgbaAndFlags & ~Color::isSemanticRBGAColorBit);
+}
+
 inline uint8_t roundAndClampColorChannel(int value)
 {
     return std::max(0, std::min(255, value));
@@ -415,7 +427,7 @@ inline uint16_t fastDivideBy255(uint16_t value)
     return approximation + (remainder >> 8);
 }
 
-inline RGBA32 colorWithOverrideAlpha(RGBA32 color, std::optional<float> overrideAlpha)
+inline RGBA32 colorWithOverrideAlpha(RGBA32 color, Optional<float> overrideAlpha)
 {
     return overrideAlpha ? colorWithOverrideAlpha(color, overrideAlpha.value()) : color;
 }
@@ -458,3 +470,8 @@ WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const Color&);
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, ColorSpace);
 
 } // namespace WebCore
+
+namespace WTF {
+template<> struct DefaultHash<WebCore::Color>;
+template<> struct HashTraits<WebCore::Color>;
+}

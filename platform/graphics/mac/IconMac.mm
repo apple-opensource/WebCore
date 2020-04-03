@@ -21,7 +21,7 @@
 #import "config.h"
 #import "Icon.h"
 
-#if !PLATFORM(IOS)
+#if PLATFORM(MAC)
 
 #import "GraphicsContext.h"
 #import "IntRect.h"
@@ -36,10 +36,9 @@ Icon::Icon(NSImage *image)
     : m_nsImage(image)
 {
     // Need this because WebCore uses AppKit's flipped coordinate system exclusively.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [image setFlipped:YES];
-#pragma clang diagnostic pop
+    ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 Icon::~Icon()
@@ -103,4 +102,4 @@ void Icon::paint(GraphicsContext& context, const FloatRect& rect)
 
 }
 
-#endif // !PLATFORM(IOS)
+#endif // PLATFORM(MAC)

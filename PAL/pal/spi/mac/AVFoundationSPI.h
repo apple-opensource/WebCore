@@ -31,76 +31,62 @@
 #if USE(APPLE_INTERNAL_SDK)
 
 #import <AVFoundation/AVAssetCache_Private.h>
-#import <AVFoundation/AVOutputContext.h>
+#import <AVFoundation/AVOutputContext_Private.h>
 #import <AVFoundation/AVPlayerItem_Private.h>
 #import <AVFoundation/AVPlayerLayer_Private.h>
 #import <AVFoundation/AVPlayer_Private.h>
 
-#if PLATFORM(IOS) && HAVE(AVKIT)
+#if PLATFORM(IOS_FAMILY) && HAVE(AVKIT)
 #import <AVKit/AVPlayerViewController_WebKitOnly.h>
 #endif
 
-#if !PLATFORM(IOS)
+#if ENABLE(MEDIA_SOURCE)
 #import <AVFoundation/AVStreamDataParser.h>
+#endif
+
+#if PLATFORM(IOS_FAMILY)
+#import <AVFoundation/AVAudioSession_Private.h>
 #endif
 
 #else
 
 #import <AVFoundation/AVPlayer.h>
 #import <AVFoundation/AVPlayerItem.h>
+#import <AVFoundation/AVPlayerLayer.h>
 
-#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300) || (PLATFORM(IOS) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 110000)
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300) || PLATFORM(IOS_FAMILY)
 NS_ASSUME_NONNULL_BEGIN
 @interface AVPlayerItem ()
 @property (nonatomic, readonly) NSTimeInterval seekableTimeRangesLastModifiedTime NS_AVAILABLE(10_13, 11_0);
 @property (nonatomic, readonly) NSTimeInterval liveUpdateInterval;
 @end
 NS_ASSUME_NONNULL_END
-#endif // (PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300) || (PLATFORM(IOS) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 110000)
+#endif // (PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300) || PLATFORM(IOS_FAMILY)
 
-#if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS)
+#if ENABLE(WIRELESS_PLAYBACK_TARGET) || PLATFORM(IOS_FAMILY)
 
 NS_ASSUME_NONNULL_BEGIN
 
 @class AVOutputContext;
+@class AVOutputDevice;
+
 @interface AVOutputContext : NSObject <NSSecureCoding>
 @property (nonatomic, readonly) NSString *deviceName;
 + (instancetype)outputContext;
++ (nullable AVOutputContext *)sharedAudioPresentationOutputContext;
+@property (readonly) BOOL supportsMultipleOutputDevices;
+@property (readonly) NSArray<AVOutputDevice *> *outputDevices;
 @end
 
+@interface AVOutputDevice : NSObject
+@property (nonatomic, readonly) NSString *name;
+@end
+
+#if !PLATFORM(IOS_FAMILY)
 @interface AVPlayer (AVPlayerExternalPlaybackSupportPrivate)
-@property (nonatomic, retain) AVOutputContext *outputContext;
+@property (nonatomic, retain, nullable) AVOutputContext *outputContext;
 @end
-
-NS_ASSUME_NONNULL_END
-
-#endif // ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS)
-
-#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200) || PLATFORM(IOS)
-#import <AVFoundation/AVAssetCache.h>
 #else
-@interface AVAssetCache : NSObject
-@end
-#endif
-NS_ASSUME_NONNULL_BEGIN
-@interface AVAssetCache ()
-+ (AVAssetCache *)assetCacheWithURL:(NSURL *)URL;
-- (id)initWithURL:(NSURL *)URL;
-- (NSArray *)allKeys;
-- (NSDate *)lastModifiedDateOfEntryForKey:(NSString *)key;
-- (void)removeEntryForKey:(NSString *)key;
-@property (nonatomic, readonly, copy) NSURL *URL;
-@end
-NS_ASSUME_NONNULL_END
-
-#if PLATFORM(IOS) && !PLATFORM(IOS_SIMULATOR)
-@interface AVPlayer (AVPlayerVideoSleepPrevention)
-@property (nonatomic, getter=_preventsSleepDuringVideoPlayback, setter=_setPreventsSleepDuringVideoPlayback:) BOOL preventsSleepDuringVideoPlayback;
-@end
-
-#endif // PLATFORM(IOS) && !PLATFORM(IOS_SIMULATOR)
-
-#if PLATFORM(IOS)
 typedef NS_ENUM(NSInteger, AVPlayerExternalPlaybackType) {
     AVPlayerExternalPlaybackTypeNone,
     AVPlayerExternalPlaybackTypeAirPlay,
@@ -112,7 +98,30 @@ typedef NS_ENUM(NSInteger, AVPlayerExternalPlaybackType) {
 @end
 #endif
 
-#if !PLATFORM(IOS)
+NS_ASSUME_NONNULL_END
+
+#endif // ENABLE(WIRELESS_PLAYBACK_TARGET) || PLATFORM(IOS_FAMILY)
+
+#import <AVFoundation/AVAssetCache.h>
+NS_ASSUME_NONNULL_BEGIN
+@interface AVAssetCache ()
++ (AVAssetCache *)assetCacheWithURL:(NSURL *)URL;
+- (id)initWithURL:(NSURL *)URL;
+- (NSArray *)allKeys;
+- (NSDate *)lastModifiedDateOfEntryForKey:(NSString *)key;
+- (void)removeEntryForKey:(NSString *)key;
+@property (nonatomic, readonly, copy) NSURL *URL;
+@end
+NS_ASSUME_NONNULL_END
+
+#if PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR)
+@interface AVPlayer (AVPlayerVideoSleepPrevention)
+@property (nonatomic, getter=_preventsSleepDuringVideoPlayback, setter=_setPreventsSleepDuringVideoPlayback:) BOOL preventsSleepDuringVideoPlayback;
+@end
+
+#endif // PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR)
+
+#if !PLATFORM(IOS_FAMILY)
 
 #pragma mark -
 #pragma mark AVStreamDataParser
@@ -152,10 +161,11 @@ NS_ASSUME_NONNULL_END
 @end
 #endif
 
-#endif // !PLATFORM(IOS)
+#endif // !PLATFORM(IOS_FAMILY)
+
 #endif // USE(APPLE_INTERNAL_SDK)
 
-#if PLATFORM(MAC) && (!USE(APPLE_INTERNAL_SDK) || __MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
+#if PLATFORM(MAC) && !USE(APPLE_INTERNAL_SDK)
 NS_ASSUME_NONNULL_BEGIN
 @interface AVStreamDataParser (AVStreamDataParserPrivate)
 + (NSString *)outputMIMECodecParameterForInputMIMECodecParameter:(NSString *)inputMIMECodecParameter;
@@ -163,13 +173,21 @@ NS_ASSUME_NONNULL_BEGIN
 NS_ASSUME_NONNULL_END
 #endif
 
-#if PLATFORM(IOS) && (!HAVE(AVKIT) || !USE(APPLE_INTERNAL_SDK))
+#if PLATFORM(IOS_FAMILY) && (!HAVE(AVKIT) || !USE(APPLE_INTERNAL_SDK))
 #import <AVFoundation/AVPlayerLayer.h>
 @interface AVPlayerLayer (AVPlayerLayerPictureInPictureModeSupportPrivate)
 - (void)setPIPModeEnabled:(BOOL)flag;
 @end
 #endif // !HAVE(AVKIT)
 
+#if !USE(APPLE_INTERNAL_SDK) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED < 101404) || (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MAX_ALLOWED < 120200)
+@class AVVideoPerformanceMetrics;
+NS_ASSUME_NONNULL_BEGIN
+@interface AVPlayerLayer (AVPlayerLayerVideoPerformanceMetrics)
+- (AVVideoPerformanceMetrics *)videoPerformanceMetrics;
+@end
+NS_ASSUME_NONNULL_END
+#endif
 
 // FIXME: Wrap in a #if USE(APPLE_INTERNAL_SDK) once these SPI land
 #import <AVFoundation/AVAsset.h>
@@ -222,10 +240,23 @@ NS_ASSUME_NONNULL_END
 
 #endif // __has_include(<AVFoundation/AVSampleBufferRenderSynchronizer.h>)
 
-#if ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED < 101300) || (PLATFORM(IOS) && __IPHONE_OS_VERSION_MAX_ALLOWED < 110000)) && __has_include(<AVFoundation/AVQueuedSampleBufferRendering.h>)
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED < 101300) && __has_include(<AVFoundation/AVQueuedSampleBufferRendering.h>)
 #import <AVFoundation/AVQueuedSampleBufferRendering.h>
+@class AVVideoPerformanceMetrics;
+NS_ASSUME_NONNULL_BEGIN
+@interface AVSampleBufferDisplayLayer (VideoPerformanceMetrics)
+- (AVVideoPerformanceMetrics *)videoPerformanceMetrics;
+@end
+NS_ASSUME_NONNULL_END
+#elif __has_include(<AVFoundation/AVSampleBufferDisplayLayer_Private.h>)
+#import <AVFoundation/AVSampleBufferDisplayLayer_Private.h>
 #elif __has_include(<AVFoundation/AVSampleBufferDisplayLayer.h>)
 #import <AVFoundation/AVSampleBufferDisplayLayer.h>
+NS_ASSUME_NONNULL_BEGIN
+@interface AVSampleBufferDisplayLayer (VideoPerformanceMetrics)
+- (AVVideoPerformanceMetrics *)videoPerformanceMetrics;
+@end
+NS_ASSUME_NONNULL_END
 #else
 
 NS_ASSUME_NONNULL_BEGIN
@@ -242,13 +273,12 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)isReadyForMoreMediaData;
 - (void)requestMediaDataWhenReadyOnQueue:(dispatch_queue_t)queue usingBlock:(void (^)(void))block;
 - (void)stopRequestingMediaData;
+- (AVVideoPerformanceMetrics *)videoPerformanceMetrics;
 @end
-
 NS_ASSUME_NONNULL_END
-
 #endif // __has_include(<AVFoundation/AVSampleBufferDisplayLayer.h>)
 
-#if ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED < 101300) || (PLATFORM(IOS) && __IPHONE_OS_VERSION_MAX_ALLOWED < 110000)) && __has_include(<AVFoundation/AVQueuedSampleBufferRendering.h>)
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED < 101300) && __has_include(<AVFoundation/AVQueuedSampleBufferRendering.h>)
 // Nothing to do, AVfoundation/AVQueuedSampleBufferRendering.h was imported above.
 #elif __has_include(<AVFoundation/AVSampleBufferAudioRenderer.h>)
 #import <AVFoundation/AVSampleBufferAudioRenderer.h>
@@ -271,7 +301,31 @@ NS_ASSUME_NONNULL_BEGIN
 
 NS_ASSUME_NONNULL_END
 
-#if PLATFORM(IOS) && !PLATFORM(IOS_SIMULATOR) && !ENABLE(MINIMAL_SIMULATOR)
+#endif // __has_include(<AVFoundation/AVSampleBufferAudioRenderer.h>)
+
+#if !USE(APPLE_INTERNAL_SDK) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED < 101300)
+@interface AVVideoPerformanceMetrics : NSObject
+@property (nonatomic, readonly) unsigned long totalNumberOfVideoFrames;
+@property (nonatomic, readonly) unsigned long numberOfDroppedVideoFrames;
+@property (nonatomic, readonly) unsigned long numberOfCorruptedVideoFrames;
+@property (nonatomic, readonly) unsigned long numberOfDisplayCompositedVideoFrames;
+@property (nonatomic, readonly) double totalFrameDelay;
+@end
+#else
+@interface AVVideoPerformanceMetrics (AVVideoPerformanceMetricsDisplayCompositedVideoFrames)
+@property (nonatomic, readonly) unsigned long numberOfDisplayCompositedVideoFrames;
+@end
+#endif
+
+#if !USE(APPLE_INTERNAL_SDK) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED < 101500) || (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MAX_ALLOWED < 130000)
+@interface AVSampleBufferDisplayLayer (WebCorePrivate)
+@property (assign, nonatomic) BOOL preventsDisplaySleepDuringVideoPlayback;
+@end
+#endif
+
+#if !USE(APPLE_INTERNAL_SDK) && PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR) && !PLATFORM(MACCATALYST)
+#import <AVFoundation/AVAudioSession.h>
+
 NS_ASSUME_NONNULL_BEGIN
 
 @interface AVAudioSession (AVAudioSessionPrivate)
@@ -281,4 +335,17 @@ NS_ASSUME_NONNULL_BEGIN
 NS_ASSUME_NONNULL_END
 #endif
 
-#endif // __has_include(<AVFoundation/AVSampleBufferAudioRenderer.h>)
+#if !USE(APPLE_INTERNAL_SDK) && HAVE(AVPLAYER_RESOURCE_CONSERVATION_LEVEL)
+@interface AVPlayer (AVPlayerPrivate)
+
+typedef NS_ENUM(NSInteger, AVPlayerResourceConservationLevel) {
+    AVPlayerResourceConservationLevelNone                                 = 0,
+    AVPlayerResourceConservationLevelReduceReadAhead                      = 1,
+    AVPlayerResourceConservationLevelReuseActivePlayerResources           = 2,
+    AVPlayerResourceConservationLevelRecycleBuffer                        = 3,
+};
+
+@property (nonatomic) AVPlayerResourceConservationLevel resourceConservationLevelWhilePaused;
+
+@end
+#endif

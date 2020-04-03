@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 1999-2001 Harri Porten (porten@kde.org)
  *  Copyright (C) 2001 Peter Kelly (pmk@post.com)
- *  Copyright (C) 2006-2017 Apple Inc. All rights reserved.
+ *  Copyright (C) 2006-2019 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -25,27 +25,27 @@
 #include "CachedScriptFetcher.h"
 #include "CommonVM.h"
 #include "ContentSecurityPolicy.h"
+#include "CustomHeaderFields.h"
 #include "DocumentLoader.h"
 #include "Event.h"
 #include "Frame.h"
 #include "FrameLoader.h"
 #include "FrameLoaderClient.h"
-#include "GCController.h"
 #include "HTMLPlugInElement.h"
 #include "InspectorInstrumentation.h"
 #include "JSDOMBindingSecurity.h"
 #include "JSDOMExceptionHandling.h"
 #include "JSDOMWindow.h"
 #include "JSDocument.h"
-#include "JSMainThreadExecState.h"
+#include "JSExecState.h"
 #include "LoadableModuleScript.h"
-#include "MainFrame.h"
 #include "ModuleFetchFailureKind.h"
 #include "ModuleFetchParameters.h"
 #include "NP_jsobject.h"
 #include "Page.h"
 #include "PageConsoleClient.h"
 #include "PageGroup.h"
+#include "PaymentCoordinator.h"
 #include "PluginViewBase.h"
 #include "RuntimeApplicationChecks.h"
 #include "ScriptDisallowedScope.h"
@@ -56,41 +56,27 @@
 #include "WebCoreJSClientData.h"
 #include "npruntime_impl.h"
 #include "runtime_root.h"
-#include <debugger/Debugger.h>
-#include <heap/StrongInlines.h>
-#include <inspector/ScriptCallStack.h>
-#include <runtime/InitializeThreading.h>
-#include <runtime/JSFunction.h>
-#include <runtime/JSInternalPromise.h>
-#include <runtime/JSLock.h>
-#include <runtime/JSModuleRecord.h>
-#include <runtime/JSNativeStdFunction.h>
-#include <runtime/JSScriptFetchParameters.h>
-#include <runtime/JSScriptFetcher.h>
-#include <wtf/MemoryPressureHandler.h>
+#include <JavaScriptCore/Debugger.h>
+#include <JavaScriptCore/InitializeThreading.h>
+#include <JavaScriptCore/JSFunction.h>
+#include <JavaScriptCore/JSInternalPromise.h>
+#include <JavaScriptCore/JSLock.h>
+#include <JavaScriptCore/JSModuleRecord.h>
+#include <JavaScriptCore/JSNativeStdFunction.h>
+#include <JavaScriptCore/JSScriptFetchParameters.h>
+#include <JavaScriptCore/JSScriptFetcher.h>
+#include <JavaScriptCore/ScriptCallStack.h>
+#include <JavaScriptCore/StrongInlines.h>
 #include <wtf/SetForScope.h>
 #include <wtf/Threading.h>
 #include <wtf/text/TextPosition.h>
 
-
 namespace WebCore {
 using namespace JSC;
 
-static void collectGarbageAfterWindowProxyDestruction()
-{
-    // Make sure to GC Extra Soon(tm) during memory pressure conditions
-    // to soften high peaks of memory usage during navigation.
-    if (MemoryPressureHandler::singleton().isUnderMemoryPressure()) {
-        // NOTE: We do the collection on next runloop to ensure that there's no pointer
-        //       to the window object on the stack.
-        GCController::singleton().garbageCollectOnNextRunLoop();
-    } else
-        GCController::singleton().garbageCollectSoon();
-}
-
 void ScriptController::initializeThreading()
 {
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
     JSC::initializeThreading();
     WTF::initializeMainThread();
 #endif
@@ -118,37 +104,6 @@ ScriptController::~ScriptController()
         m_cacheableBindingRootObject->invalidate();
         m_cacheableBindingRootObject = nullptr;
     }
-
-    // It's likely that destroying m_windowProxies will create a lot of garbage.
-    if (!m_windowProxies.isEmpty()) {
-        while (!m_windowProxies.isEmpty()) {
-            auto iter = m_windowProxies.begin();
-            iter->value->window()->setConsoleClient(nullptr);
-            destroyWindowProxy(*iter->key);
-        }
-        collectGarbageAfterWindowProxyDestruction();
-    }
-}
-
-void ScriptController::destroyWindowProxy(DOMWrapperWorld& world)
-{
-    ASSERT(m_windowProxies.contains(&world));
-    m_windowProxies.remove(&world);
-    world.didDestroyWindowProxy(this);
-}
-
-JSDOMWindowProxy& ScriptController::createWindowProxy(DOMWrapperWorld& world)
-{
-    ASSERT(!m_windowProxies.contains(&world));
-
-    VM& vm = world.vm();
-
-    auto* structure = JSDOMWindowProxy::createStructure(vm, jsNull());
-    Strong<JSDOMWindowProxy> windowProxy(vm, JSDOMWindowProxy::create(vm, m_frame.document()->domWindow(), structure, world));
-    Strong<JSDOMWindowProxy> windowProxy2(windowProxy);
-    m_windowProxies.add(&world, windowProxy);
-    world.didCreateWindowProxy(this);
-    return *windowProxy.get();
 }
 
 JSValue ScriptController::evaluateInWorld(const ScriptSourceCode& sourceCode, DOMWrapperWorld& world, ExceptionDetails* exceptionDetails)
@@ -165,17 +120,17 @@ JSValue ScriptController::evaluateInWorld(const ScriptSourceCode& sourceCode, DO
     // and false for <script>doSomething()</script>. Check if it has the
     // expected value in all cases.
     // See smart window.open policy for where this is used.
-    auto& proxy = *windowProxy(world);
+    auto& proxy = jsWindowProxy(world);
     auto& exec = *proxy.window()->globalExec();
     const String* savedSourceURL = m_sourceURL;
     m_sourceURL = &sourceURL;
 
     Ref<Frame> protector(m_frame);
 
-    InspectorInstrumentationCookie cookie = InspectorInstrumentation::willEvaluateScript(m_frame, sourceURL, sourceCode.startLine());
+    InspectorInstrumentationCookie cookie = InspectorInstrumentation::willEvaluateScript(m_frame, sourceURL, sourceCode.startLine(), sourceCode.startColumn());
 
     NakedPtr<JSC::Exception> evaluationException;
-    JSValue returnValue = JSMainThreadExecState::profiledEvaluate(&exec, JSC::ProfilingReason::Other, jsSourceCode, &proxy, evaluationException);
+    JSValue returnValue = JSExecState::profiledEvaluate(&exec, JSC::ProfilingReason::Other, jsSourceCode, &proxy, evaluationException);
 
     InspectorInstrumentation::didEvaluateScript(cookie, m_frame);
 
@@ -198,10 +153,10 @@ void ScriptController::loadModuleScriptInWorld(LoadableModuleScript& moduleScrip
 {
     JSLockHolder lock(world.vm());
 
-    auto& proxy = *windowProxy(world);
+    auto& proxy = jsWindowProxy(world);
     auto& state = *proxy.window()->globalExec();
 
-    auto& promise = JSMainThreadExecState::loadModule(state, moduleName, JSC::JSScriptFetchParameters::create(state.vm(), WTFMove(topLevelFetchParameters)), JSC::JSScriptFetcher::create(state.vm(), { &moduleScript }));
+    auto& promise = JSExecState::loadModule(state, moduleName, JSC::JSScriptFetchParameters::create(state.vm(), WTFMove(topLevelFetchParameters)), JSC::JSScriptFetcher::create(state.vm(), { &moduleScript }));
     setupModuleScriptHandlers(moduleScript, promise, world);
 }
 
@@ -214,10 +169,10 @@ void ScriptController::loadModuleScriptInWorld(LoadableModuleScript& moduleScrip
 {
     JSLockHolder lock(world.vm());
 
-    auto& proxy = *windowProxy(world);
+    auto& proxy = jsWindowProxy(world);
     auto& state = *proxy.window()->globalExec();
 
-    auto& promise = JSMainThreadExecState::loadModule(state, sourceCode.jsSourceCode(), JSC::JSScriptFetcher::create(state.vm(), { &moduleScript }));
+    auto& promise = JSExecState::loadModule(state, sourceCode.jsSourceCode(), JSC::JSScriptFetcher::create(state.vm(), { &moduleScript }));
     setupModuleScriptHandlers(moduleScript, promise, world);
 }
 
@@ -230,7 +185,7 @@ JSC::JSValue ScriptController::linkAndEvaluateModuleScriptInWorld(LoadableModule
 {
     JSLockHolder lock(world.vm());
 
-    auto& proxy = *windowProxy(world);
+    auto& proxy = jsWindowProxy(world);
     auto& state = *proxy.window()->globalExec();
 
     // FIXME: Preventing Frame from being destroyed is essentially unnecessary.
@@ -238,7 +193,7 @@ JSC::JSValue ScriptController::linkAndEvaluateModuleScriptInWorld(LoadableModule
     Ref<Frame> protector(m_frame);
 
     NakedPtr<JSC::Exception> evaluationException;
-    auto returnValue = JSMainThreadExecState::linkAndEvaluateModule(state, Identifier::fromUid(&state.vm(), moduleScript.moduleKey()), jsUndefined(), evaluationException);
+    auto returnValue = JSExecState::linkAndEvaluateModule(state, Identifier::fromUid(&state.vm(), moduleScript.moduleKey()), jsUndefined(), evaluationException);
     if (evaluationException) {
         // FIXME: Give a chance to dump the stack trace if the "crossorigin" attribute allows.
         // https://bugs.webkit.org/show_bug.cgi?id=164539
@@ -259,13 +214,13 @@ JSC::JSValue ScriptController::evaluateModule(const URL& sourceURL, JSModuleReco
 
     const auto& jsSourceCode = moduleRecord.sourceCode();
 
-    auto& proxy = *windowProxy(world);
+    auto& proxy = jsWindowProxy(world);
     auto& state = *proxy.window()->globalExec();
     SetForScope<const String*> sourceURLScope(m_sourceURL, &sourceURL.string());
 
     Ref<Frame> protector(m_frame);
 
-    auto cookie = InspectorInstrumentation::willEvaluateScript(m_frame, sourceURL, jsSourceCode.firstLine().oneBasedInt());
+    auto cookie = InspectorInstrumentation::willEvaluateScript(m_frame, sourceURL, jsSourceCode.firstLine().oneBasedInt(), jsSourceCode.startColumn().oneBasedInt());
 
     auto returnValue = moduleRecord.evaluate(&state);
     InspectorInstrumentation::didEvaluateScript(cookie, m_frame);
@@ -283,87 +238,27 @@ Ref<DOMWrapperWorld> ScriptController::createWorld()
     return DOMWrapperWorld::create(commonVM());
 }
 
-Vector<JSC::Strong<JSDOMWindowProxy>> ScriptController::windowProxies()
-{
-    return copyToVector(m_windowProxies.values());
-}
-
 void ScriptController::getAllWorlds(Vector<Ref<DOMWrapperWorld>>& worlds)
 {
     static_cast<JSVMClientData*>(commonVM().clientData)->getAllWorlds(worlds);
 }
 
-void ScriptController::clearWindowProxiesNotMatchingDOMWindow(DOMWindow* newDOMWindow, bool goingIntoPageCache)
+void ScriptController::initScriptForWindowProxy(JSWindowProxy& windowProxy)
 {
-    if (m_windowProxies.isEmpty())
-        return;
+    auto& world = windowProxy.world();
 
-    JSLockHolder lock(commonVM());
-
-    for (auto& windowProxy : windowProxies()) {
-        if (&windowProxy->window()->wrapped() == newDOMWindow)
-            continue;
-
-        // Clear the debugger and console from the current window before setting the new window.
-        attachDebugger(windowProxy.get(), nullptr);
-        windowProxy->window()->setConsoleClient(nullptr);
-        windowProxy->window()->willRemoveFromWindowProxy();
-    }
-
-    // It's likely that resetting our windows created a lot of garbage, unless
-    // it went in a back/forward cache.
-    if (!goingIntoPageCache)
-        collectGarbageAfterWindowProxyDestruction();
-}
-
-void ScriptController::setDOMWindowForWindowProxy(DOMWindow* newDOMWindow)
-{
-    if (m_windowProxies.isEmpty())
-        return;
-    
-    JSLockHolder lock(commonVM());
-    
-    for (auto& windowProxy : windowProxies()) {
-        if (&windowProxy->window()->wrapped() == newDOMWindow)
-            continue;
-        
-        windowProxy->setWindow(newDOMWindow);
-        
-        // An m_cacheableBindingRootObject persists between page navigations
-        // so needs to know about the new JSDOMWindow.
-        if (m_cacheableBindingRootObject)
-            m_cacheableBindingRootObject->updateGlobalObject(windowProxy->window());
-
-        if (Page* page = m_frame.page()) {
-            attachDebugger(windowProxy.get(), page->debugger());
-            windowProxy->window()->setProfileGroup(page->group().identifier());
-            windowProxy->window()->setConsoleClient(&page->console());
-        }
-    }
-}
-
-JSDOMWindowProxy* ScriptController::initScript(DOMWrapperWorld& world)
-{
-    ASSERT(!m_windowProxies.contains(&world));
-
-    JSLockHolder lock(world.vm());
-
-    auto& windowProxy = createWindowProxy(world);
-
-    windowProxy.window()->updateDocument();
+    jsCast<JSDOMWindow*>(windowProxy.window())->updateDocument();
 
     if (Document* document = m_frame.document())
         document->contentSecurityPolicy()->didCreateWindowProxy(windowProxy);
 
     if (Page* page = m_frame.page()) {
-        attachDebugger(&windowProxy, page->debugger());
+        windowProxy.attachDebugger(page->debugger());
         windowProxy.window()->setProfileGroup(page->group().identifier());
         windowProxy.window()->setConsoleClient(&page->console());
     }
 
     m_frame.loader().dispatchDidClearWindowObjectInWorld(world);
-
-    return &windowProxy;
 }
 
 static Identifier jsValueToModuleKey(ExecState* exec, JSValue value)
@@ -376,7 +271,7 @@ static Identifier jsValueToModuleKey(ExecState* exec, JSValue value)
 
 void ScriptController::setupModuleScriptHandlers(LoadableModuleScript& moduleScriptRef, JSInternalPromise& promise, DOMWrapperWorld& world)
 {
-    auto& proxy = *windowProxy(world);
+    auto& proxy = jsWindowProxy(world);
     auto& state = *proxy.window()->globalExec();
 
     // It is not guaranteed that either fulfillHandler or rejectHandler is eventually called.
@@ -385,8 +280,11 @@ void ScriptController::setupModuleScriptHandlers(LoadableModuleScript& moduleScr
 
     RefPtr<LoadableModuleScript> moduleScript(&moduleScriptRef);
 
-    auto& fulfillHandler = *JSNativeStdFunction::create(state.vm(), proxy.window(), 1, String(), [moduleScript](ExecState* exec) {
+    auto& fulfillHandler = *JSNativeStdFunction::create(state.vm(), proxy.window(), 1, String(), [moduleScript](ExecState* exec) -> JSC::EncodedJSValue {
+        VM& vm = exec->vm();
+        auto scope = DECLARE_THROW_SCOPE(vm);
         Identifier moduleKey = jsValueToModuleKey(exec, exec->argument(0));
+        RETURN_IF_EXCEPTION(scope, { });
         moduleScript->notifyLoadCompleted(*moduleKey.impl());
         return JSValue::encode(jsUndefined());
     });
@@ -402,7 +300,7 @@ void ScriptController::setupModuleScriptHandlers(LoadableModuleScript& moduleScr
                 case ModuleFetchFailureKind::WasErrored:
                     moduleScript->notifyLoadFailed(LoadableScript::Error {
                         LoadableScript::ErrorType::CachedScript,
-                        std::nullopt
+                        WTF::nullopt
                     });
                     break;
                 case ModuleFetchFailureKind::WasCanceled:
@@ -428,6 +326,18 @@ void ScriptController::setupModuleScriptHandlers(LoadableModuleScript& moduleScr
     promise.then(&state, &fulfillHandler, &rejectHandler);
 }
 
+WindowProxy& ScriptController::windowProxy()
+{
+    return m_frame.windowProxy();
+}
+
+JSWindowProxy& ScriptController::jsWindowProxy(DOMWrapperWorld& world)
+{
+    auto* jsWindowProxy = m_frame.windowProxy().jsWindowProxy(world);
+    ASSERT_WITH_MESSAGE(jsWindowProxy, "The JSWindowProxy can only be null if the frame has been destroyed");
+    return *jsWindowProxy;
+}
+
 TextPosition ScriptController::eventHandlerPosition() const
 {
     // FIXME: If we are not currently parsing, we should use our current location
@@ -443,72 +353,54 @@ TextPosition ScriptController::eventHandlerPosition() const
 
 void ScriptController::enableEval()
 {
-    auto* windowProxy = existingWindowProxy(mainThreadNormalWorld());
-    if (!windowProxy)
+    auto* jsWindowProxy = windowProxy().existingJSWindowProxy(mainThreadNormalWorld());
+    if (!jsWindowProxy)
         return;
-    windowProxy->window()->setEvalEnabled(true);
+    jsWindowProxy->window()->setEvalEnabled(true);
 }
 
 void ScriptController::enableWebAssembly()
 {
-    auto* windowProxy = existingWindowProxy(mainThreadNormalWorld());
-    if (!windowProxy)
+    auto* jsWindowProxy = windowProxy().existingJSWindowProxy(mainThreadNormalWorld());
+    if (!jsWindowProxy)
         return;
-    windowProxy->window()->setWebAssemblyEnabled(true);
+    jsWindowProxy->window()->setWebAssemblyEnabled(true);
 }
 
 void ScriptController::disableEval(const String& errorMessage)
 {
-    auto* windowProxy = existingWindowProxy(mainThreadNormalWorld());
-    if (!windowProxy)
+    auto* jsWindowProxy = windowProxy().existingJSWindowProxy(mainThreadNormalWorld());
+    if (!jsWindowProxy)
         return;
-    windowProxy->window()->setEvalEnabled(false, errorMessage);
+    jsWindowProxy->window()->setEvalEnabled(false, errorMessage);
 }
 
 void ScriptController::disableWebAssembly(const String& errorMessage)
 {
-    auto* windowProxy = existingWindowProxy(mainThreadNormalWorld());
-    if (!windowProxy)
+    auto* jsWindowProxy = windowProxy().existingJSWindowProxy(mainThreadNormalWorld());
+    if (!jsWindowProxy)
         return;
-    windowProxy->window()->setWebAssemblyEnabled(false, errorMessage);
+    jsWindowProxy->window()->setWebAssemblyEnabled(false, errorMessage);
 }
 
-bool ScriptController::canAccessFromCurrentOrigin(Frame* frame)
+bool ScriptController::canAccessFromCurrentOrigin(Frame* frame, Document& accessingDocument)
 {
-    auto* state = JSMainThreadExecState::currentState();
+    auto* state = JSExecState::currentState();
 
-    // If the current state is null we're in a call path where the DOM security check doesn't apply (eg. parser).
-    if (!state)
-        return true;
+    // If the current state is null we should use the accessing document for the security check.
+    if (!state) {
+        auto* targetDocument = frame ? frame->document() : nullptr;
+        return targetDocument && accessingDocument.securityOrigin().canAccess(targetDocument->securityOrigin());
+    }
 
     return BindingSecurity::shouldAllowAccessToFrame(state, frame);
 }
 
-void ScriptController::attachDebugger(JSC::Debugger* debugger)
-{
-    for (auto& windowProxy : windowProxies())
-        attachDebugger(windowProxy.get(), debugger);
-}
-
-void ScriptController::attachDebugger(JSDOMWindowProxy* proxy, JSC::Debugger* debugger)
-{
-    if (!proxy)
-        return;
-
-    auto* globalObject = proxy->window();
-    JSLockHolder lock(globalObject->vm());
-
-    if (debugger)
-        debugger->attach(globalObject);
-    else if (auto* currentDebugger = globalObject->debugger())
-        currentDebugger->detach(globalObject, JSC::Debugger::TerminatingDebuggingSession);
-}
-
 void ScriptController::updateDocument()
 {
-    for (auto& windowProxy : windowProxies()) {
-        JSLockHolder lock(windowProxy->world().vm());
-        windowProxy->window()->updateDocument();
+    for (auto& jsWindowProxy : windowProxy().jsWindowProxiesAsVector()) {
+        JSLockHolder lock(jsWindowProxy->world().vm());
+        jsCast<JSDOMWindow*>(jsWindowProxy->window())->updateDocument();
     }
 }
 
@@ -550,9 +442,9 @@ Ref<Bindings::RootObject> ScriptController::createRootObject(void* nativeHandle)
 
 void ScriptController::collectIsolatedContexts(Vector<std::pair<JSC::ExecState*, SecurityOrigin*>>& result)
 {
-    for (auto& windowProxy : m_windowProxies.values()) {
-        auto* exec = windowProxy->window()->globalExec();
-        auto* origin = &windowProxy->window()->wrapped().document()->securityOrigin();
+    for (auto& jsWindowProxy : windowProxy().jsWindowProxiesAsVector()) {
+        auto* exec = jsWindowProxy->window()->globalExec();
+        auto* origin = &downcast<DOMWindow>(jsWindowProxy->wrapped()).document()->securityOrigin();
         result.append(std::make_pair(exec, origin));
     }
 }
@@ -565,7 +457,7 @@ NPObject* ScriptController::windowScriptNPObject()
         if (canExecuteScripts(NotAboutToExecuteScript)) {
             // JavaScript is enabled, so there is a JavaScript window object.
             // Return an NPObject bound to the window object.
-            auto* window = windowProxy(pluginWorld())->window();
+            auto* window = jsWindowProxy(pluginWorld()).window();
             ASSERT(window);
             Bindings::RootObject* root = bindingRootObject();
             m_windowScriptNPObject = _NPN_CreateScriptObject(0, window, root);
@@ -655,15 +547,36 @@ void ScriptController::clearScriptObjects()
 #endif
 }
 
-JSValue ScriptController::executeScriptInWorld(DOMWrapperWorld& world, const String& script, bool forceUserGesture)
+JSValue ScriptController::executeScriptInWorld(DOMWrapperWorld& world, const String& script, bool forceUserGesture, ExceptionDetails* exceptionDetails)
 {
-    UserGestureIndicator gestureIndicator(forceUserGesture ? std::optional<ProcessingUserGestureState>(ProcessingUserGesture) : std::nullopt);
-    ScriptSourceCode sourceCode(script, m_frame.document()->url(), TextPosition(), JSC::SourceProviderSourceType::Program, CachedScriptFetcher::create(m_frame.document()->charset()));
+    UserGestureIndicator gestureIndicator(forceUserGesture ? Optional<ProcessingUserGestureState>(ProcessingUserGesture) : WTF::nullopt);
+    ScriptSourceCode sourceCode(script, URL(m_frame.document()->url()), TextPosition(), JSC::SourceProviderSourceType::Program, CachedScriptFetcher::create(m_frame.document()->charset()));
 
     if (!canExecuteScripts(AboutToExecuteScript) || isPaused())
         return { };
 
-    return evaluateInWorld(sourceCode, world);
+    return evaluateInWorld(sourceCode, world, exceptionDetails);
+}
+
+JSValue ScriptController::executeUserAgentScriptInWorld(DOMWrapperWorld& world, const String& script, bool forceUserGesture, ExceptionDetails* exceptionDetails)
+{
+    auto& document = *m_frame.document();
+    if (!shouldAllowUserAgentScripts(document))
+        return { };
+
+    document.setHasEvaluatedUserAgentScripts();
+    return executeScriptInWorld(world, script, forceUserGesture, exceptionDetails);
+}
+
+bool ScriptController::shouldAllowUserAgentScripts(Document& document) const
+{
+#if ENABLE(APPLE_PAY)
+    if (auto page = m_frame.page())
+        return page->paymentCoordinator().shouldAllowUserAgentScripts(document);
+#else
+    UNUSED_PARAM(document);
+#endif
+    return true;
 }
 
 bool ScriptController::canExecuteScripts(ReasonForCallingCanExecuteScripts reason)
@@ -686,8 +599,8 @@ bool ScriptController::canExecuteScripts(ReasonForCallingCanExecuteScripts reaso
 
 JSValue ScriptController::executeScript(const String& script, bool forceUserGesture, ExceptionDetails* exceptionDetails)
 {
-    UserGestureIndicator gestureIndicator(forceUserGesture ? std::optional<ProcessingUserGestureState>(ProcessingUserGesture) : std::nullopt);
-    return executeScript(ScriptSourceCode(script, m_frame.document()->url(), TextPosition(), JSC::SourceProviderSourceType::Program, CachedScriptFetcher::create(m_frame.document()->charset())), exceptionDetails);
+    UserGestureIndicator gestureIndicator(forceUserGesture ? Optional<ProcessingUserGestureState>(ProcessingUserGesture) : WTF::nullopt);
+    return executeScript(ScriptSourceCode(script, URL(m_frame.document()->url()), TextPosition(), JSC::SourceProviderSourceType::Program, CachedScriptFetcher::create(m_frame.document()->charset())), exceptionDetails);
 }
 
 JSValue ScriptController::executeScript(const ScriptSourceCode& sourceCode, ExceptionDetails* exceptionDetails)
@@ -704,7 +617,7 @@ JSValue ScriptController::executeScript(const ScriptSourceCode& sourceCode, Exce
 
 bool ScriptController::executeIfJavaScriptURL(const URL& url, ShouldReplaceDocumentIfJavaScriptURL shouldReplaceDocumentIfJavaScriptURL)
 {
-    if (!protocolIsJavaScript(url))
+    if (!WTF::protocolIsJavaScript(url))
         return false;
 
     if (!m_frame.page() || !m_frame.document()->contentSecurityPolicy()->allowJavaScriptURLs(m_frame.document()->url(), eventHandlerPosition().m_line))
@@ -726,7 +639,7 @@ bool ScriptController::executeIfJavaScriptURL(const URL& url, ShouldReplaceDocum
         return true;
 
     String scriptResult;
-    if (!result || !result.getString(windowProxy(mainThreadNormalWorld())->window()->globalExec(), scriptResult))
+    if (!result || !result.getString(jsWindowProxy(mainThreadNormalWorld()).window()->globalExec(), scriptResult))
         return true;
 
     // FIXME: We should always replace the document, but doing so
@@ -735,11 +648,17 @@ bool ScriptController::executeIfJavaScriptURL(const URL& url, ShouldReplaceDocum
     if (shouldReplaceDocumentIfJavaScriptURL == ReplaceDocumentIfJavaScriptURL) {
         // We're still in a frame, so there should be a DocumentLoader.
         ASSERT(m_frame.document()->loader());
-        
-        // DocumentWriter::replaceDocument can cause the DocumentLoader to get deref'ed and possible destroyed,
+
+        // Signal to FrameLoader to disable navigations within this frame while replacing it with the result of executing javascript
+        // FIXME: https://bugs.webkit.org/show_bug.cgi?id=200523
+        // The only reason we do a nestable save/restore of this flag here is because we sometimes nest javascript: url loads as
+        // some will load synchronously. We'd like to remove those synchronous loads and then change this.
+        SetForScope<bool> willBeReplaced(m_willReplaceWithResultOfExecutingJavascriptURL, true);
+
+        // DocumentWriter::replaceDocumentWithResultOfExecutingJavascriptURL can cause the DocumentLoader to get deref'ed and possible destroyed,
         // so protect it with a RefPtr.
         if (RefPtr<DocumentLoader> loader = m_frame.document()->loader())
-            loader->writer().replaceDocument(scriptResult, ownerDocument.get());
+            loader->writer().replaceDocumentWithResultOfExecutingJavascriptURL(scriptResult, ownerDocument.get());
     }
     return true;
 }

@@ -28,10 +28,12 @@
 #include "ExceptionOr.h"
 #include "JSDOMConvert.h"
 #include "JSDOMGuardedObject.h"
-#include <runtime/CatchScope.h>
-#include <runtime/JSPromiseDeferred.h>
+#include <JavaScriptCore/CatchScope.h>
+#include <JavaScriptCore/JSPromiseDeferred.h>
 
 namespace WebCore {
+
+class JSDOMWindow;
 
 class DeferredPromise : public DOMGuarded<JSC::JSPromiseDeferred> {
 public:
@@ -42,7 +44,7 @@ public:
 
     static RefPtr<DeferredPromise> create(JSC::ExecState& state, JSDOMGlobalObject& globalObject, Mode mode = Mode::ClearPromiseOnResolve)
     {
-        auto* promiseDeferred = JSC::JSPromiseDeferred::create(&state, &globalObject);
+        auto* promiseDeferred = JSC::JSPromiseDeferred::tryCreate(&state, &globalObject);
         if (!promiseDeferred)
             return nullptr;
         return adoptRef(new DeferredPromise(globalObject, *promiseDeferred, mode));
@@ -132,6 +134,8 @@ public:
 
     JSC::JSValue promise() const;
 
+    void whenSettled(std::function<void()>&&);
+
 private:
     DeferredPromise(JSDOMGlobalObject& globalObject, JSC::JSPromiseDeferred& deferred, Mode mode)
         : DOMGuarded<JSC::JSPromiseDeferred>(globalObject, deferred)
@@ -142,6 +146,7 @@ private:
     JSC::JSPromiseDeferred* deferred() const { return guarded(); }
 
     WEBCORE_EXPORT void callFunction(JSC::ExecState&, JSC::JSValue function, JSC::JSValue resolution);
+
     void resolve(JSC::ExecState& state, JSC::JSValue resolution) { callFunction(state, deferred()->resolve(), resolution); }
     void reject(JSC::ExecState& state, JSC::JSValue resolution) { callFunction(state, deferred()->reject(), resolution); }
 
@@ -252,7 +257,9 @@ void fulfillPromiseWithJSON(Ref<DeferredPromise>&&, const String&);
 void fulfillPromiseWithArrayBuffer(Ref<DeferredPromise>&&, ArrayBuffer*);
 void fulfillPromiseWithArrayBuffer(Ref<DeferredPromise>&&, const void*, size_t);
 WEBCORE_EXPORT void rejectPromiseWithExceptionIfAny(JSC::ExecState&, JSDOMGlobalObject&, JSC::JSPromiseDeferred&);
-JSC::EncodedJSValue createRejectedPromiseWithTypeError(JSC::ExecState&, const String&);
+
+enum class RejectedPromiseWithTypeErrorCause { NativeGetter, InvalidThis };
+JSC::EncodedJSValue createRejectedPromiseWithTypeError(JSC::ExecState&, const String&, RejectedPromiseWithTypeErrorCause);
 
 using PromiseFunction = void(JSC::ExecState&, Ref<DeferredPromise>&&);
 
@@ -265,7 +272,7 @@ inline JSC::JSValue callPromiseFunction(JSC::ExecState& state)
     auto scope = DECLARE_CATCH_SCOPE(vm);
 
     auto& globalObject = callerGlobalObject(state);
-    JSC::JSPromiseDeferred* promiseDeferred = JSC::JSPromiseDeferred::create(&state, &globalObject);
+    JSC::JSPromiseDeferred* promiseDeferred = JSC::JSPromiseDeferred::tryCreate(&state, &globalObject);
 
     // promiseDeferred can be null when terminating a Worker abruptly.
     if (executionScope == PromiseExecutionScope::WindowOrWorker && !promiseDeferred)
@@ -285,7 +292,7 @@ inline JSC::JSValue callPromiseFunction(JSC::ExecState& state, PromiseFunctor fu
     auto scope = DECLARE_CATCH_SCOPE(vm);
 
     auto& globalObject = callerGlobalObject(state);
-    JSC::JSPromiseDeferred* promiseDeferred = JSC::JSPromiseDeferred::create(&state, &globalObject);
+    JSC::JSPromiseDeferred* promiseDeferred = JSC::JSPromiseDeferred::tryCreate(&state, &globalObject);
 
     // promiseDeferred can be null when terminating a Worker abruptly.
     if (executionScope == PromiseExecutionScope::WindowOrWorker && !promiseDeferred)

@@ -25,9 +25,8 @@
 #if ENABLE(VIDEO) && USE(GSTREAMER) && ENABLE(MEDIA_SOURCE)
 
 #include "AudioTrackPrivateGStreamer.h"
+#include "GStreamerCommon.h"
 #include "MediaSampleGStreamer.h"
-#include "GStreamerUtilities.h"
-#include "GUniquePtrGStreamer.h"
 #include "MediaSample.h"
 #include "SourceBufferPrivateGStreamer.h"
 #include "VideoTrackPrivateGStreamer.h"
@@ -36,18 +35,17 @@
 #include <gst/gst.h>
 #include <wtf/MainThread.h>
 #include <wtf/RefCounted.h>
-#include <wtf/glib/GMutexLocker.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/GUniquePtr.h>
-#include <wtf/text/AtomicString.h>
+#include <wtf/text/AtomString.h>
 
 GST_DEBUG_CATEGORY_EXTERN(webkit_mse_debug);
 #define GST_CAT_DEFAULT webkit_mse_debug
 
-static Stream* getStreamByTrackId(WebKitMediaSrc*, AtomicString);
+static Stream* getStreamByTrackId(WebKitMediaSrc*, AtomString);
 static Stream* getStreamBySourceBufferPrivate(WebKitMediaSrc*, WebCore::SourceBufferPrivateGStreamer*);
 
-static Stream* getStreamByTrackId(WebKitMediaSrc* source, AtomicString trackIdString)
+static Stream* getStreamByTrackId(WebKitMediaSrc* source, AtomString trackIdString)
 {
     // WebKitMediaSrc should be locked at this point.
     for (Stream* stream : source->priv->streams) {
@@ -122,7 +120,6 @@ MediaSourcePrivate::AddStatus PlaybackPipeline::addSourceBuffer(RefPtr<SourceBuf
 
     // No track has been attached yet.
     stream->type = Invalid;
-    stream->parser = nullptr;
     stream->caps = nullptr;
     stream->audioTrack = nullptr;
     stream->videoTrack = nullptr;
@@ -162,7 +159,7 @@ void PlaybackPipeline::removeSourceBuffer(RefPtr<SourceBufferPrivateGStreamer> s
         webKitMediaSrcFreeStream(m_webKitMediaSrc.get(), stream);
 }
 
-void PlaybackPipeline::attachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, RefPtr<TrackPrivateBase> trackPrivate, GstStructure* structure, GstCaps* caps)
+void PlaybackPipeline::attachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, RefPtr<TrackPrivateBase> trackPrivate, GstCaps* caps)
 {
     WebKitMediaSrc* webKitMediaSrc = m_webKitMediaSrc.get();
 
@@ -177,112 +174,35 @@ void PlaybackPipeline::attachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBu
     stream->parent->priv->numberOfPads++;
     GST_OBJECT_UNLOCK(webKitMediaSrc);
 
-    const gchar* mediaType = gst_structure_get_name(structure);
-
+    const char* mediaType = capsMediaType(caps);
     GST_DEBUG_OBJECT(webKitMediaSrc, "Configured track %s: appsrc=%s, padId=%u, mediaType=%s", trackPrivate->id().string().utf8().data(), GST_ELEMENT_NAME(stream->appsrc), padId, mediaType);
-
-    GUniquePtr<gchar> parserBinName(g_strdup_printf("streamparser%u", padId));
-
-    if (!g_strcmp0(mediaType, "video/x-h264")) {
-        GRefPtr<GstCaps> filterCaps = adoptGRef(gst_caps_new_simple("video/x-h264", "alignment", G_TYPE_STRING, "au", nullptr));
-        GstElement* capsfilter = gst_element_factory_make("capsfilter", nullptr);
-        g_object_set(capsfilter, "caps", filterCaps.get(), nullptr);
-
-        stream->parser = gst_bin_new(parserBinName.get());
-
-        GstElement* parser = gst_element_factory_make("h264parse", nullptr);
-        gst_bin_add_many(GST_BIN(stream->parser), parser, capsfilter, nullptr);
-        gst_element_link_pads(parser, "src", capsfilter, "sink");
-
-        GRefPtr<GstPad> pad = adoptGRef(gst_element_get_static_pad(parser, "sink"));
-        gst_element_add_pad(stream->parser, gst_ghost_pad_new("sink", pad.get()));
-
-        pad = adoptGRef(gst_element_get_static_pad(capsfilter, "src"));
-        gst_element_add_pad(stream->parser, gst_ghost_pad_new("src", pad.get()));
-    } else if (!g_strcmp0(mediaType, "video/x-h265")) {
-        GRefPtr<GstCaps> filterCaps = adoptGRef(gst_caps_new_simple("video/x-h265", "alignment", G_TYPE_STRING, "au", nullptr));
-        GstElement* capsfilter = gst_element_factory_make("capsfilter", nullptr);
-        g_object_set(capsfilter, "caps", filterCaps.get(), nullptr);
-
-        stream->parser = gst_bin_new(parserBinName.get());
-
-        GstElement* parser = gst_element_factory_make("h265parse", nullptr);
-        gst_bin_add_many(GST_BIN(stream->parser), parser, capsfilter, nullptr);
-        gst_element_link_pads(parser, "src", capsfilter, "sink");
-
-        GRefPtr<GstPad> pad = adoptGRef(gst_element_get_static_pad(parser, "sink"));
-        gst_element_add_pad(stream->parser, gst_ghost_pad_new("sink", pad.get()));
-
-        pad = adoptGRef(gst_element_get_static_pad(capsfilter, "src"));
-        gst_element_add_pad(stream->parser, gst_ghost_pad_new("src", pad.get()));
-    } else if (!g_strcmp0(mediaType, "audio/mpeg")) {
-        gint mpegversion = -1;
-        gst_structure_get_int(structure, "mpegversion", &mpegversion);
-
-        GstElement* parser = nullptr;
-        if (mpegversion == 1)
-            parser = gst_element_factory_make("mpegaudioparse", nullptr);
-        else if (mpegversion == 2 || mpegversion == 4)
-            parser = gst_element_factory_make("aacparse", nullptr);
-        else
-            ASSERT_NOT_REACHED();
-
-        stream->parser = gst_bin_new(parserBinName.get());
-        gst_bin_add(GST_BIN(stream->parser), parser);
-
-        GRefPtr<GstPad> pad = adoptGRef(gst_element_get_static_pad(parser, "sink"));
-        gst_element_add_pad(stream->parser, gst_ghost_pad_new("sink", pad.get()));
-
-        pad = adoptGRef(gst_element_get_static_pad(parser, "src"));
-        gst_element_add_pad(stream->parser, gst_ghost_pad_new("src", pad.get()));
-    } else if (!g_strcmp0(mediaType, "video/x-vp8")
-        || !g_strcmp0(mediaType, "video/x-vp9")
-        || !g_strcmp0(mediaType, "audio/x-opus")
-        || !g_strcmp0(mediaType, "audio/x-vorbis"))
-        stream->parser = nullptr;
-    else {
-        GST_ERROR_OBJECT(stream->parent, "Unsupported media format: %s", mediaType);
-        return;
-    }
 
     GST_OBJECT_LOCK(webKitMediaSrc);
     stream->type = Unknown;
     GST_OBJECT_UNLOCK(webKitMediaSrc);
 
-    GRefPtr<GstPad> sourcePad;
-    if (stream->parser) {
-        gst_bin_add(GST_BIN(stream->parent), stream->parser);
-        gst_element_sync_state_with_parent(stream->parser);
-
-        GRefPtr<GstPad> sinkPad = adoptGRef(gst_element_get_static_pad(stream->parser, "sink"));
-        sourcePad = adoptGRef(gst_element_get_static_pad(stream->appsrc, "src"));
-        gst_pad_link(sourcePad.get(), sinkPad.get());
-        sourcePad = adoptGRef(gst_element_get_static_pad(stream->parser, "src"));
-    } else {
-        GST_DEBUG_OBJECT(m_webKitMediaSrc.get(), "Stream of type %s doesn't require a parser bin", mediaType);
-        sourcePad = adoptGRef(gst_element_get_static_pad(stream->appsrc, "src"));
-    }
+    GRefPtr<GstPad> sourcePad = adoptGRef(gst_element_get_static_pad(stream->appsrc, "src"));
     ASSERT(sourcePad);
 
     // FIXME: Is padId the best way to identify the Stream? What about trackId?
     g_object_set_data(G_OBJECT(sourcePad.get()), "padId", GINT_TO_POINTER(padId));
-    webKitMediaSrcLinkParser(sourcePad.get(), caps, stream);
+    webKitMediaSrcLinkSourcePad(sourcePad.get(), caps, stream);
 
     ASSERT(stream->parent->priv->mediaPlayerPrivate);
     int signal = -1;
 
     GST_OBJECT_LOCK(webKitMediaSrc);
-    if (g_str_has_prefix(mediaType, "audio")) {
+    if (doCapsHaveType(caps, GST_AUDIO_CAPS_TYPE_PREFIX)) {
         stream->type = Audio;
         stream->parent->priv->numberOfAudioStreams++;
         signal = SIGNAL_AUDIO_CHANGED;
         stream->audioTrack = RefPtr<WebCore::AudioTrackPrivateGStreamer>(static_cast<WebCore::AudioTrackPrivateGStreamer*>(trackPrivate.get()));
-    } else if (g_str_has_prefix(mediaType, "video")) {
+    } else if (doCapsHaveType(caps, GST_VIDEO_CAPS_TYPE_PREFIX)) {
         stream->type = Video;
         stream->parent->priv->numberOfVideoStreams++;
         signal = SIGNAL_VIDEO_CHANGED;
         stream->videoTrack = RefPtr<WebCore::VideoTrackPrivateGStreamer>(static_cast<WebCore::VideoTrackPrivateGStreamer*>(trackPrivate.get()));
-    } else if (g_str_has_prefix(mediaType, "text")) {
+    } else if (doCapsHaveType(caps, GST_TEXT_CAPS_TYPE_PREFIX)) {
         stream->type = Text;
         stream->parent->priv->numberOfTextStreams++;
         signal = SIGNAL_TEXT_CHANGED;
@@ -295,7 +215,7 @@ void PlaybackPipeline::attachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBu
         g_signal_emit(G_OBJECT(stream->parent), webKitMediaSrcSignals[signal], 0, nullptr);
 }
 
-void PlaybackPipeline::reattachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, RefPtr<TrackPrivateBase> trackPrivate, const char* mediaType)
+void PlaybackPipeline::reattachTrack(RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivate, RefPtr<TrackPrivateBase> trackPrivate, GstCaps* caps)
 {
     GST_DEBUG("Re-attaching track");
 
@@ -313,15 +233,15 @@ void PlaybackPipeline::reattachTrack(RefPtr<SourceBufferPrivateGStreamer> source
     int signal = -1;
 
     GST_OBJECT_LOCK(webKitMediaSrc);
-    if (g_str_has_prefix(mediaType, "audio")) {
+    if (doCapsHaveType(caps, GST_AUDIO_CAPS_TYPE_PREFIX)) {
         ASSERT(stream->type == Audio);
         signal = SIGNAL_AUDIO_CHANGED;
         stream->audioTrack = RefPtr<WebCore::AudioTrackPrivateGStreamer>(static_cast<WebCore::AudioTrackPrivateGStreamer*>(trackPrivate.get()));
-    } else if (g_str_has_prefix(mediaType, "video")) {
+    } else if (doCapsHaveType(caps, GST_VIDEO_CAPS_TYPE_PREFIX)) {
         ASSERT(stream->type == Video);
         signal = SIGNAL_VIDEO_CHANGED;
         stream->videoTrack = RefPtr<WebCore::VideoTrackPrivateGStreamer>(static_cast<WebCore::VideoTrackPrivateGStreamer*>(trackPrivate.get()));
-    } else if (g_str_has_prefix(mediaType, "text")) {
+    } else if (doCapsHaveType(caps, GST_TEXT_CAPS_TYPE_PREFIX)) {
         ASSERT(stream->type == Text);
         signal = SIGNAL_TEXT_CHANGED;
 
@@ -369,26 +289,7 @@ void PlaybackPipeline::markEndOfStream(MediaSourcePrivate::EndOfStreamStatus)
         gst_app_src_end_of_stream(appsrc);
 }
 
-GstPadProbeReturn segmentFixerProbe(GstPad*, GstPadProbeInfo* info, gpointer)
-{
-    GstEvent* event = GST_EVENT(info->data);
-
-    if (GST_EVENT_TYPE(event) != GST_EVENT_SEGMENT)
-        return GST_PAD_PROBE_OK;
-
-    GstSegment* segment = nullptr;
-    gst_event_parse_segment(event, const_cast<const GstSegment**>(&segment));
-
-    GST_TRACE("Fixed segment base time from %" GST_TIME_FORMAT " to %" GST_TIME_FORMAT,
-        GST_TIME_ARGS(segment->base), GST_TIME_ARGS(segment->start));
-
-    segment->base = segment->start;
-    segment->flags = static_cast<GstSegmentFlags>(0);
-
-    return GST_PAD_PROBE_REMOVE;
-}
-
-void PlaybackPipeline::flush(AtomicString trackId)
+void PlaybackPipeline::flush(AtomString trackId)
 {
     ASSERT(WTF::isMainThread());
 
@@ -417,51 +318,16 @@ void PlaybackPipeline::flush(AtomicString trackId)
     GST_TRACE("Position: %" GST_TIME_FORMAT, GST_TIME_ARGS(position));
 
     if (static_cast<guint64>(position) == GST_CLOCK_TIME_NONE) {
-        GST_TRACE("Can't determine position, avoiding flush");
+        GST_DEBUG("Can't determine position, avoiding flush");
         return;
     }
 
-    double rate;
-    GstFormat format;
-    gint64 start = GST_CLOCK_TIME_NONE;
-    gint64 stop = GST_CLOCK_TIME_NONE;
-
-    query = adoptGRef(gst_query_new_segment(GST_FORMAT_TIME));
-    if (gst_element_query(pipeline(), query.get()))
-        gst_query_parse_segment(query.get(), &rate, &format, &start, &stop);
-
-    GST_TRACE("segment: [%" GST_TIME_FORMAT ", %" GST_TIME_FORMAT "], rate: %f",
-        GST_TIME_ARGS(start), GST_TIME_ARGS(stop), rate);
-
     if (!gst_element_send_event(GST_ELEMENT(appsrc), gst_event_new_flush_start())) {
         GST_WARNING("Failed to send flush-start event for trackId=%s", trackId.string().utf8().data());
-        return;
     }
 
     if (!gst_element_send_event(GST_ELEMENT(appsrc), gst_event_new_flush_stop(false))) {
         GST_WARNING("Failed to send flush-stop event for trackId=%s", trackId.string().utf8().data());
-        return;
-    }
-
-    if (static_cast<guint64>(position) == GST_CLOCK_TIME_NONE || static_cast<guint64>(start) == GST_CLOCK_TIME_NONE)
-        return;
-
-    GUniquePtr<GstSegment> segment(gst_segment_new());
-    gst_segment_init(segment.get(), GST_FORMAT_TIME);
-    gst_segment_do_seek(segment.get(), rate, GST_FORMAT_TIME, GST_SEEK_FLAG_NONE,
-        GST_SEEK_TYPE_SET, position, GST_SEEK_TYPE_SET, stop, nullptr);
-
-    GRefPtr<GstPad> sinkPad = adoptGRef(gst_element_get_static_pad(appsrc, "src"));
-    GRefPtr<GstPad> srcPad = sinkPad ? adoptGRef(gst_pad_get_peer(sinkPad.get())) : nullptr;
-    if (srcPad)
-        gst_pad_add_probe(srcPad.get(), GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, segmentFixerProbe, nullptr, nullptr);
-
-    GST_TRACE("Sending new seamless segment: [%" GST_TIME_FORMAT ", %" GST_TIME_FORMAT "], rate: %f",
-        GST_TIME_ARGS(segment->start), GST_TIME_ARGS(segment->stop), segment->rate);
-
-    if (!gst_base_src_new_seamless_segment(GST_BASE_SRC(appsrc), segment->start, segment->stop, segment->start)) {
-        GST_WARNING("Failed to send seamless segment event for trackId=%s", trackId.string().utf8().data());
-        return;
     }
 
     GST_DEBUG("trackId=%s flushed", trackId.string().utf8().data());
@@ -471,7 +337,7 @@ void PlaybackPipeline::enqueueSample(Ref<MediaSample>&& mediaSample)
 {
     ASSERT(WTF::isMainThread());
 
-    AtomicString trackId = mediaSample->trackID();
+    AtomString trackId = mediaSample->trackID();
 
     GST_TRACE("enqueing sample trackId=%s PTS=%f presentationSize=%.0fx%.0f at %" GST_TIME_FORMAT " duration: %" GST_TIME_FORMAT,
         trackId.string().utf8().data(), mediaSample->presentationTime().toFloat(),
@@ -513,6 +379,12 @@ void PlaybackPipeline::enqueueSample(Ref<MediaSample>&& mediaSample)
 
         stream->lastEnqueuedTime = lastEnqueuedTime;
     }
+}
+
+void PlaybackPipeline::allSamplesInTrackEnqueued(const AtomString& trackId)
+{
+    Stream* stream = getStreamByTrackId(m_webKitMediaSrc.get(), trackId);
+    gst_app_src_end_of_stream(GST_APP_SRC(stream->appsrc));
 }
 
 GstElement* PlaybackPipeline::pipeline()

@@ -32,7 +32,7 @@
 #pragma once
 
 #include "InspectorWebAgentBase.h"
-#include <inspector/agents/InspectorRuntimeAgent.h>
+#include <JavaScriptCore/InspectorRuntimeAgent.h>
 
 namespace WebCore {
 
@@ -45,9 +45,6 @@ class WorkerRuntimeAgent final : public Inspector::InspectorRuntimeAgent {
 public:
     WorkerRuntimeAgent(WorkerAgentContext&);
     ~WorkerRuntimeAgent() = default;
-
-    void didCreateFrontendAndBackend(Inspector::FrontendRouter*, Inspector::BackendDispatcher*) override;
-    void willDestroyFrontendAndBackend(Inspector::DisconnectReason) override;
 
 private:
     Inspector::InjectedScript injectedScriptForEval(ErrorString&, const int* executionContextId) override;

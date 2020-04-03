@@ -27,21 +27,20 @@
 
 #include <wtf/Function.h>
 
-#if PLATFORM(IOS)
-
+#if PLATFORM(IOS_FAMILY)
 #include <wtf/RetainPtr.h>
 OBJC_CLASS WebLowPowerModeObserver;
-
 #endif
 
-#if USE(UPOWER)
-#include <libupower-glib/upower.h>
+#if USE(GLIB)
 #include <wtf/glib/GRefPtr.h>
+typedef struct _GDBusProxy GDBusProxy;
 #endif
 
 namespace WebCore {
 
 class LowPowerModeNotifier {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     using LowPowerModeChangeCallback = WTF::Function<void(bool isLowPowerModeEnabled)>;
     WEBCORE_EXPORT explicit LowPowerModeNotifier(LowPowerModeChangeCallback&&);
@@ -50,18 +49,19 @@ public:
     WEBCORE_EXPORT bool isLowPowerModeEnabled() const;
 
 private:
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     void notifyLowPowerModeChanged(bool);
     friend void notifyLowPowerModeChanged(LowPowerModeNotifier&, bool);
 
     RetainPtr<WebLowPowerModeObserver> m_observer;
     LowPowerModeChangeCallback m_callback;
-#elif USE(UPOWER)
-    static void warningLevelCallback(LowPowerModeNotifier*);
-    void updateState();
+#elif USE(GLIB)
+    void updateWarningLevel();
+    void warningLevelChanged();
+    static void gPropertiesChangedCallback(LowPowerModeNotifier*, GVariant* changedProperties);
 
-    GRefPtr<UpClient> m_upClient;
-    GRefPtr<UpDevice> m_device;
+    GRefPtr<GDBusProxy> m_displayDeviceProxy;
+    GRefPtr<GCancellable> m_cancellable;
     LowPowerModeChangeCallback m_callback;
     bool m_lowPowerModeEnabled { false };
 #endif

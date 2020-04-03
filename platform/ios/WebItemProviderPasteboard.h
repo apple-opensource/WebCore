@@ -23,12 +23,11 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#if TARGET_OS_IPHONE
+
 #import <WebCore/AbstractPasteboard.h>
 
-#if TARGET_OS_IPHONE && __IPHONE_OS_VERSION_MIN_REQUIRED >= 110000
-
-@class UIItemProvider;
-@protocol UIItemProviderWriting;
+#if __IPHONE_OS_VERSION_MIN_REQUIRED >= 110000
 
 struct CGSize;
 
@@ -40,19 +39,27 @@ typedef NS_ENUM(NSInteger, WebPreferredPresentationStyle) {
 
 NS_ASSUME_NONNULL_BEGIN
 
-/*! A WebItemProviderRegistrationInfo represents a single call to register something to an item provider.
- @discussion Either the representing object exists and the type identifier and data are nil, or the
- representing object is nil and the type identifier and data exist. The former represents a call to
- register an entire UIItemProviderWriting-conformant object to the item provider, while the latter
- represents a call to register only a data representation for the given type identifier.
- */
-WEBCORE_EXPORT @interface WebItemProviderRegistrationInfo : NSObject
-
-@property (nonatomic, readonly, nullable, strong) id <UIItemProviderWriting> representingObject;
-@property (nonatomic, readonly, nullable, strong) NSString *typeIdentifier;
-@property (nonatomic, readonly, nullable, strong) NSData *data;
-
+@interface NSItemProvider (WebCoreExtras)
+@property (nonatomic, readonly) BOOL web_containsFileURLAndFileUploadContent;
+@property (nonatomic, readonly) NSArray<NSString *> *web_fileUploadContentTypes;
 @end
+
+/*! A WebItemProviderRegistrar encapsulates a single call to register something to an item provider.
+ @discussion Classes that implement this protocol each represent a different way of writing data to
+ an item provider. Some examples include setting a chunk of data corresponding to a type identifier,
+ or registering a NSItemProviderWriting-conformant object, or registering a type to a promised file
+ where the data has been written.
+ */
+@protocol WebItemProviderRegistrar <NSObject>
+- (void)registerItemProvider:(NSItemProvider *)itemProvider;
+
+@optional
+@property (nonatomic, readonly) id <NSItemProviderWriting> representingObjectForClient;
+@property (nonatomic, readonly) NSString *typeIdentifierForClient;
+@property (nonatomic, readonly) NSData *dataForClient;
+@end
+
+typedef void(^WebItemProviderFileCallback)(NSURL * _Nullable, NSError * _Nullable);
 
 /*! A WebItemProviderRegistrationInfoList represents a series of registration calls used to set up a
  single item provider.
@@ -63,19 +70,20 @@ WEBCORE_EXPORT @interface WebItemProviderRegistrationInfo : NSObject
  */
 WEBCORE_EXPORT @interface WebItemProviderRegistrationInfoList : NSObject
 
-- (void)addRepresentingObject:(id <UIItemProviderWriting>)object;
+- (void)addRepresentingObject:(id <NSItemProviderWriting>)object;
 - (void)addData:(NSData *)data forType:(NSString *)typeIdentifier;
+- (void)addPromisedType:(NSString *)typeIdentifier fileCallback:(void(^)(WebItemProviderFileCallback))callback;
 
 @property (nonatomic) CGSize preferredPresentationSize;
 @property (nonatomic, copy) NSString *suggestedName;
-@property (nonatomic, readonly, nullable) UIItemProvider *itemProvider;
+@property (nonatomic, readonly, nullable) __kindof NSItemProvider *itemProvider;
 
 @property (nonatomic) WebPreferredPresentationStyle preferredPresentationStyle;
 @property (nonatomic, copy) NSData *teamData;
 
 - (NSUInteger)numberOfItems;
-- (nullable WebItemProviderRegistrationInfo *)itemAtIndex:(NSUInteger)index;
-- (void)enumerateItems:(void(^)(WebItemProviderRegistrationInfo *item, NSUInteger index))block;
+- (nullable id <WebItemProviderRegistrar>)itemAtIndex:(NSUInteger)index;
+- (void)enumerateItems:(void(^)(id <WebItemProviderRegistrar> item, NSUInteger index))block;
 
 @end
 
@@ -92,14 +100,11 @@ WEBCORE_EXPORT @interface WebItemProviderPasteboard : NSObject<AbstractPasteboar
 // This will only be non-empty when an operation is being performed.
 @property (readonly, nonatomic) NSArray<NSURL *> *allDroppedFileURLs;
 
-// The preferred file URL corresponds to the highest fidelity non-private UTI that was loaded.
-- (nullable NSURL *)preferredFileUploadURLAtIndex:(NSUInteger)index fileType:(NSString *_Nullable *_Nullable)outFileType;
-
 @property (readonly, nonatomic) BOOL hasPendingOperation;
 - (void)incrementPendingOperationCount;
 - (void)decrementPendingOperationCount;
 
-- (void)enumerateItemProvidersWithBlock:(void (^)(UIItemProvider *itemProvider, NSUInteger index, BOOL *stop))block;
+- (void)enumerateItemProvidersWithBlock:(void (^)(__kindof NSItemProvider *itemProvider, NSUInteger index, BOOL *stop))block;
 
 // The given completion block is always dispatched on the main thread.
 - (void)doAfterLoadingProvidedContentIntoFileURLs:(WebItemProviderFileLoadBlock)action;
@@ -109,4 +114,5 @@ WEBCORE_EXPORT @interface WebItemProviderPasteboard : NSObject<AbstractPasteboar
 
 NS_ASSUME_NONNULL_END
 
-#endif // TARGET_OS_IPHONE && __IPHONE_OS_VERSION_MIN_REQUIRED >= 110000
+#endif // __IPHONE_OS_VERSION_MIN_REQUIRED >= 110000
+#endif // TARGET_OS_IPHONE

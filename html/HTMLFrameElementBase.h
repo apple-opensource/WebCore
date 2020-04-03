@@ -33,6 +33,7 @@ class ExecState;
 namespace WebCore {
 
 class HTMLFrameElementBase : public HTMLFrameOwnerElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLFrameElementBase);
 public:
     WEBCORE_EXPORT URL location() const;
     WEBCORE_EXPORT void setLocation(const String&);
@@ -55,7 +56,7 @@ protected:
 
     bool isURLAllowed() const;
 
-    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void parseAttribute(const QualifiedName&, const AtomString&) override;
     InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
     void didFinishInsertingNode() final;
     void didAttachRenderers() override;
@@ -69,11 +70,9 @@ private:
 
     bool isFrameElementBase() const final { return true; }
 
-    void setNameAndOpenURL();
     void openURL(LockHistory = LockHistory::Yes, LockBackForwardList = LockBackForwardList::Yes);
 
-    AtomicString m_URL;
-    AtomicString m_frameName;
+    AtomString m_URL;
 
     ScrollbarMode m_scrolling;
 

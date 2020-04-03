@@ -26,7 +26,7 @@
 #import "config.h"
 #import "WebCoreMotionManager.h"
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
 
 #import "WebCoreObjCExtras.h"
 #import "WebCoreThreadRun.h"

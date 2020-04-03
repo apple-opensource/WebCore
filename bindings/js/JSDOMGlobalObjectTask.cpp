@@ -28,11 +28,10 @@
 
 #include "ActiveDOMCallback.h"
 #include "JSDOMGlobalObject.h"
-#include "JSMainThreadExecState.h"
-#include <heap/StrongInlines.h>
-#include <runtime/Microtask.h>
+#include "JSExecState.h"
+#include <JavaScriptCore/Microtask.h>
+#include <JavaScriptCore/StrongInlines.h>
 #include <wtf/Ref.h>
-
 
 namespace WebCore {
 using namespace JSC;
@@ -60,13 +59,7 @@ public:
         // We will fail to get the context if the frame has been detached.
         if (!context)
             return;
-
-        // When on the main thread (e.g. the document's thread), we need to make sure to
-        // push the current ExecState on to the JSMainThreadExecState stack.
-        if (context->isDocument())
-            JSMainThreadExecState::runTask(exec, m_task);
-        else
-            m_task->run(exec);
+        JSExecState::runTask(exec, m_task);
         scope.assertNoException();
     }
 
@@ -85,8 +78,8 @@ private:
 JSGlobalObjectTask::JSGlobalObjectTask(JSDOMGlobalObject& globalObject, Ref<Microtask>&& task)
     : ScriptExecutionContext::Task({ })
 {
-    RefPtr<JSGlobalObjectCallback> callback = JSGlobalObjectCallback::create(globalObject, WTFMove(task));
-    m_task = [callback] (ScriptExecutionContext&) {
+    auto callback = JSGlobalObjectCallback::create(globalObject, WTFMove(task));
+    m_task = [callback = WTFMove(callback)] (ScriptExecutionContext&) {
         callback->call();
     };
 }

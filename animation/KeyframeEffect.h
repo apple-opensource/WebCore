@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,28 +26,44 @@
 #pragma once
 
 #include "AnimationEffect.h"
-#include "AnimationEffectTimingProperties.h"
 #include "CSSPropertyBlendingClient.h"
 #include "CompositeOperation.h"
+#include "CompositeOperationOrAuto.h"
+#include "EffectTiming.h"
+#include "Element.h"
+#include "IterationCompositeOperation.h"
 #include "KeyframeEffectOptions.h"
 #include "KeyframeList.h"
 #include "RenderStyle.h"
+#include "StyleProperties.h"
+#include "WebAnimationUtilities.h"
 #include <wtf/Ref.h>
 
 namespace WebCore {
 
 class Element;
+class FilterOperations;
 
-class KeyframeEffect final : public AnimationEffect
+class KeyframeEffect : public AnimationEffect
     , public CSSPropertyBlendingClient {
 public:
-    static ExceptionOr<Ref<KeyframeEffect>> create(JSC::ExecState&, Element*, JSC::Strong<JSC::JSObject>&&, std::optional<Variant<double, KeyframeEffectOptions>>&&);
+    static ExceptionOr<Ref<KeyframeEffect>> create(JSC::ExecState&, Element*, JSC::Strong<JSC::JSObject>&&, Optional<Variant<double, KeyframeEffectOptions>>&&);
+    static ExceptionOr<Ref<KeyframeEffect>> create(JSC::ExecState&, Ref<KeyframeEffect>&&);
+    static Ref<KeyframeEffect> create(const Element&);
     ~KeyframeEffect() { }
 
+    bool isKeyframeEffect() const final { return true; }
+
     struct BasePropertyIndexedKeyframe {
-        Variant<std::nullptr_t, double, Vector<std::optional<double>>> offset;
-        Variant<String, Vector<String>> easing;
-        Variant<CompositeOperation, Vector<CompositeOperation>> composite;
+        Variant<std::nullptr_t, Vector<Optional<double>>, double> offset = Vector<Optional<double>>();
+        Variant<Vector<String>, String> easing = Vector<String>();
+        Variant<Vector<CompositeOperationOrAuto>, CompositeOperationOrAuto> composite = Vector<CompositeOperationOrAuto>();
+    };
+
+    struct BaseKeyframe {
+        MarkableDouble offset;
+        String easing { "linear" };
+        CompositeOperationOrAuto composite { CompositeOperationOrAuto::Auto };
     };
 
     struct PropertyAndValues {
@@ -60,43 +76,111 @@ public:
         Vector<PropertyAndValues> propertiesAndValues;
     };
 
-    struct ProcessedKeyframe {
+    struct ParsedKeyframe {
+        MarkableDouble offset;
+        double computedOffset;
+        CompositeOperationOrAuto composite { CompositeOperationOrAuto::Auto };
         String easing;
-        std::optional<double> offset;
-        std::optional<CompositeOperation> composite;
-        HashMap<CSSPropertyID, String> cssPropertiesAndValues;
+        RefPtr<TimingFunction> timingFunction;
+        Ref<MutableStyleProperties> style;
+        HashMap<CSSPropertyID, String> unparsedStyle;
+
+        ParsedKeyframe()
+            : style(MutableStyleProperties::create())
+        {
+        }
+    };
+
+    struct BaseComputedKeyframe {
+        MarkableDouble offset;
+        double computedOffset;
+        String easing { "linear" };
+        CompositeOperationOrAuto composite { CompositeOperationOrAuto::Auto };
     };
 
     Element* target() const { return m_target.get(); }
+    void setTarget(RefPtr<Element>&&);
+
+    Vector<JSC::Strong<JSC::JSObject>> getKeyframes(JSC::ExecState&);
     ExceptionOr<void> setKeyframes(JSC::ExecState&, JSC::Strong<JSC::JSObject>&&);
+
+    IterationCompositeOperation iterationComposite() const { return m_iterationCompositeOperation; }
+    void setIterationComposite(IterationCompositeOperation iterationCompositeOperation) { m_iterationCompositeOperation = iterationCompositeOperation; }
+    CompositeOperation composite() const { return m_compositeOperation; }
+    void setComposite(CompositeOperation compositeOperation) { m_compositeOperation = compositeOperation; }
+
     void getAnimatedStyle(std::unique_ptr<RenderStyle>& animatedStyle);
-    void applyAtLocalTime(Seconds, RenderStyle&) override;
-    void startOrStopAccelerated();
-    bool isRunningAccelerated() const { return m_startedAccelerated; }
+    void apply(RenderStyle&) override;
+    void invalidate() override;
+    void animationDidSeek() final;
+    void animationSuspensionStateDidChange(bool) final;
+    void applyPendingAcceleratedActions();
+    bool isRunningAccelerated() const { return m_lastRecordedAcceleratedAction != AcceleratedAction::Stop; }
+    bool hasPendingAcceleratedAction() const { return !m_pendingAcceleratedActions.isEmpty() && isRunningAccelerated(); }
 
     RenderElement* renderer() const override;
     const RenderStyle& currentStyle() const override;
-    bool isAccelerated() const override { return false; }
-    bool filterFunctionListsMatch() const override { return false; }
-    bool transformFunctionListsMatch() const override { return false; }
+    bool isAccelerated() const override { return m_shouldRunAccelerated; }
+    bool filterFunctionListsMatch() const override { return m_filterFunctionListsMatch; }
+    bool transformFunctionListsMatch() const override { return m_transformFunctionListsMatch; }
 #if ENABLE(FILTERS_LEVEL_2)
-    bool backdropFilterFunctionListsMatch() const override { return false; }
+    bool backdropFilterFunctionListsMatch() const override { return m_backdropFilterFunctionListsMatch; }
 #endif
+    bool colorFilterFunctionListsMatch() const override { return m_colorFilterFunctionListsMatch; }
+
+    void computeDeclarativeAnimationBlendingKeyframes(const RenderStyle* oldStyle, const RenderStyle& newStyle);
+    bool hasBlendingKeyframes() const { return m_blendingKeyframes.size(); }
+    const HashSet<CSSPropertyID>& animatedProperties() const { return m_blendingKeyframes.properties(); }
+
+    bool computeExtentOfTransformAnimation(LayoutRect&) const;
+    bool computeTransformedExtentViaTransformList(const FloatRect&, const RenderStyle&, LayoutRect&) const;
+    bool computeTransformedExtentViaMatrix(const FloatRect&, const RenderStyle&, LayoutRect&) const;
+    bool forceLayoutIfNeeded();
 
 private:
     KeyframeEffect(Element*);
+
+    enum class AcceleratedAction : uint8_t { Play, Pause, Seek, Stop };
+
+    void copyPropertiesFromSource(Ref<KeyframeEffect>&&);
     ExceptionOr<void> processKeyframes(JSC::ExecState&, JSC::Strong<JSC::JSObject>&&);
-
+    void addPendingAcceleratedAction(AcceleratedAction);
+    void updateAcceleratedAnimationState();
     void setAnimatedPropertiesInStyle(RenderStyle&, double);
+    TimingFunction* timingFunctionForKeyframeAtIndex(size_t);
+    Ref<const Animation> backingAnimationForCompositedRenderer() const;
+    void computedNeedsForcedLayout();
     void computeStackingContextImpact();
-    bool shouldRunAccelerated();
+    void updateBlendingKeyframes(RenderStyle&);
+    void computeCSSAnimationBlendingKeyframes();
+    void computeCSSTransitionBlendingKeyframes(const RenderStyle* oldStyle, const RenderStyle& newStyle);
+    void computeShouldRunAccelerated();
+    void setBlendingKeyframes(KeyframeList&);
+    void checkForMatchingTransformFunctionLists();
+    void checkForMatchingFilterFunctionLists();
+    void checkForMatchingColorFilterFunctionLists();
+    bool checkForMatchingFilterFunctionLists(CSSPropertyID, const std::function<const FilterOperations& (const RenderStyle&)>&) const;
+#if ENABLE(FILTERS_LEVEL_2)
+    void checkForMatchingBackdropFilterFunctionLists();
+#endif
 
+    KeyframeList m_blendingKeyframes { emptyString() };
+    Vector<ParsedKeyframe> m_parsedKeyframes;
+    Vector<AcceleratedAction> m_pendingAcceleratedActions;
     RefPtr<Element> m_target;
-    KeyframeList m_keyframes;
-    bool m_triggersStackingContext { false };
-    bool m_started { false };
-    bool m_startedAccelerated { false };
 
+    AcceleratedAction m_lastRecordedAcceleratedAction { AcceleratedAction::Stop };
+    IterationCompositeOperation m_iterationCompositeOperation { IterationCompositeOperation::Replace };
+    CompositeOperation m_compositeOperation { CompositeOperation::Replace };
+    bool m_shouldRunAccelerated { false };
+    bool m_needsForcedLayout { false };
+    bool m_triggersStackingContext { false };
+    bool m_transformFunctionListsMatch { false };
+    bool m_filterFunctionListsMatch { false };
+#if ENABLE(FILTERS_LEVEL_2)
+    bool m_backdropFilterFunctionListsMatch { false };
+#endif
+    bool m_colorFilterFunctionListsMatch { false };
 };
 
 } // namespace WebCore

@@ -24,6 +24,8 @@
 
 #pragma once
 
+#include "CSSValue.h"
+#include "ExceptionOr.h"
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 
@@ -50,6 +52,11 @@ public:
     virtual bool operator==(const TimingFunction&) const = 0;
     bool operator!=(const TimingFunction& other) const { return !(*this == other); }
 
+    static ExceptionOr<RefPtr<TimingFunction>> createFromCSSText(const String&);
+    static RefPtr<TimingFunction> createFromCSSValue(const CSSValue&);
+    double transformTime(double, double, bool before = false) const;
+    String cssText() const;
+
 protected:
     explicit TimingFunction(TimingFunctionType type)
         : m_type(type)
@@ -69,7 +76,7 @@ public:
     
     bool operator==(const TimingFunction& other) const final
     {
-        return other.isLinearTimingFunction();
+        return is<LinearTimingFunction>(other);
     }
 
 private:
@@ -118,9 +125,9 @@ public:
 
     bool operator==(const TimingFunction& other) const final
     {
-        if (!other.isCubicBezierTimingFunction())
+        if (!is<CubicBezierTimingFunction>(other))
             return false;
-        auto& otherCubic = static_cast<const CubicBezierTimingFunction&>(other);
+        auto& otherCubic = downcast<CubicBezierTimingFunction>(other);
         if (m_timingFunctionPreset != otherCubic.m_timingFunctionPreset)
             return false;
         if (m_timingFunctionPreset != Custom)
@@ -153,6 +160,11 @@ public:
     Ref<CubicBezierTimingFunction> createReversed() const
     {
         return create(1.0 - m_x2, 1.0 - m_y2, 1.0 - m_x1, 1.0 - m_y1);
+    }
+
+    bool isLinear() const
+    {
+        return (!m_x1 && !m_y1 && !m_x2 && !m_y2) || (m_x1 == 1.0 && m_y1 == 1.0 && m_x2 == 1.0 && m_y2 == 1.0) || (m_x1 == 0.0 && m_y1 == 0.0 && m_x2 == 1.0 && m_y2 == 1.0);
     }
 
 private:
@@ -191,9 +203,9 @@ public:
     
     bool operator==(const TimingFunction& other) const final
     {
-        if (!other.isStepsTimingFunction())
+        if (!is<StepsTimingFunction>(other))
             return false;
-        auto& otherSteps = static_cast<const StepsTimingFunction&>(other);
+        auto& otherSteps = downcast<StepsTimingFunction>(other);
         return m_steps == otherSteps.m_steps && m_stepAtStart == otherSteps.m_stepAtStart;
     }
     
@@ -236,9 +248,9 @@ public:
     
     bool operator==(const TimingFunction& other) const final
     {
-        if (!other.isSpringTimingFunction())
+        if (!is<SpringTimingFunction>(other))
             return false;
-        auto& otherSpring = static_cast<const SpringTimingFunction&>(other);
+        auto& otherSpring = downcast<SpringTimingFunction>(other);
         return m_mass == otherSpring.m_mass && m_stiffness == otherSpring.m_stiffness && m_damping == otherSpring.m_damping && m_initialVelocity == otherSpring.m_initialVelocity;
     }
 
@@ -279,3 +291,13 @@ private:
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const TimingFunction&);
 
 } // namespace WebCore
+
+#define SPECIALIZE_TYPE_TRAITS_TIMINGFUNCTION(ToValueTypeName, predicate) \
+SPECIALIZE_TYPE_TRAITS_BEGIN(ToValueTypeName) \
+static bool isType(const WebCore::TimingFunction& function) { return function.predicate; } \
+SPECIALIZE_TYPE_TRAITS_END()
+
+SPECIALIZE_TYPE_TRAITS_TIMINGFUNCTION(WebCore::LinearTimingFunction, isLinearTimingFunction())
+SPECIALIZE_TYPE_TRAITS_TIMINGFUNCTION(WebCore::CubicBezierTimingFunction, isCubicBezierTimingFunction())
+SPECIALIZE_TYPE_TRAITS_TIMINGFUNCTION(WebCore::StepsTimingFunction, isStepsTimingFunction())
+SPECIALIZE_TYPE_TRAITS_TIMINGFUNCTION(WebCore::SpringTimingFunction, isSpringTimingFunction())

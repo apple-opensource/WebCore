@@ -22,9 +22,11 @@
 #pragma once
 
 #include "CSSSelectorList.h"
+#include "CompiledSelector.h"
 #include "StyleProperties.h"
 #include <wtf/RefPtr.h>
 #include <wtf/TypeCasts.h>
+#include <wtf/UniqueArray.h>
 
 namespace WebCore {
 
@@ -82,8 +84,8 @@ public:
     }
 
     // FIXME: There shouldn't be any need for the null parent version.
-    RefPtr<CSSRule> createCSSOMWrapper(CSSStyleSheet* parentSheet = nullptr) const;
-    RefPtr<CSSRule> createCSSOMWrapper(CSSRule* parentRule) const;
+    Ref<CSSRule> createCSSOMWrapper(CSSStyleSheet* parentSheet = nullptr) const;
+    Ref<CSSRule> createCSSOMWrapper(CSSRule* parentRule) const;
 
 protected:
     StyleRuleBase(Type type, bool hasDocumentSecurityOrigin = false)
@@ -106,7 +108,7 @@ protected:
 private:
     WEBCORE_EXPORT void destroy();
     
-    RefPtr<CSSRule> createCSSOMWrapper(CSSStyleSheet* parentSheet, CSSRule* parentRule) const;
+    Ref<CSSRule> createCSSOMWrapper(CSSStyleSheet* parentSheet, CSSRule* parentRule) const;
 
     unsigned m_type : 5;
     // This is only needed to support getMatchedCSSRules.
@@ -116,9 +118,9 @@ private:
 class StyleRule final : public StyleRuleBase {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    static Ref<StyleRule> create(Ref<StylePropertiesBase>&& properties, bool hasDocumentSecurityOrigin)
+    static Ref<StyleRule> create(Ref<StylePropertiesBase>&& properties, bool hasDocumentSecurityOrigin, CSSSelectorList&& selectors)
     {
-        return adoptRef(*new StyleRule(WTFMove(properties), hasDocumentSecurityOrigin));
+        return adoptRef(*new StyleRule(WTFMove(properties), hasDocumentSecurityOrigin, WTFMove(selectors)));
     }
     
     ~StyleRule();
@@ -131,24 +133,45 @@ public:
 
     using StyleRuleBase::hasDocumentSecurityOrigin;
 
-    void parserAdoptSelectorVector(Vector<std::unique_ptr<CSSParserSelector>>& selectors) { m_selectorList.adoptSelectorVector(selectors); }
-    void wrapperAdoptSelectorList(CSSSelectorList& selectors) { m_selectorList = WTFMove(selectors); }
-    void parserAdoptSelectorArray(CSSSelector* selectors) { m_selectorList.adoptSelectorArray(selectors); }
+    void wrapperAdoptSelectorList(CSSSelectorList&& selectors)
+    {
+        m_selectorList = WTFMove(selectors);
+#if ENABLE(CSS_SELECTOR_JIT)
+        m_compiledSelectors = nullptr;
+#endif
+    }
 
     Ref<StyleRule> copy() const { return adoptRef(*new StyleRule(*this)); }
 
     Vector<RefPtr<StyleRule>> splitIntoMultipleRulesWithMaximumSelectorComponentCount(unsigned) const;
 
+#if ENABLE(CSS_SELECTOR_JIT)
+    CompiledSelector& compiledSelectorForListIndex(unsigned index)
+    {
+        if (!m_compiledSelectors)
+            m_compiledSelectors = makeUniqueArray<CompiledSelector>(m_selectorList.listSize());
+        return m_compiledSelectors[index];
+    }
+    void releaseCompiledSelectors() const
+    {
+        m_compiledSelectors = nullptr;
+    }
+#endif
+
     static unsigned averageSizeInBytes();
 
 private:
-    StyleRule(Ref<StylePropertiesBase>&&, bool hasDocumentSecurityOrigin);
+    StyleRule(Ref<StylePropertiesBase>&&, bool hasDocumentSecurityOrigin, CSSSelectorList&&);
     StyleRule(const StyleRule&);
 
     static Ref<StyleRule> createForSplitting(const Vector<const CSSSelector*>&, Ref<StyleProperties>&&, bool hasDocumentSecurityOrigin);
 
     mutable Ref<StylePropertiesBase> m_properties;
     CSSSelectorList m_selectorList;
+
+#if ENABLE(CSS_SELECTOR_JIT)
+    mutable UniqueArray<CompiledSelector> m_compiledSelectors;
+#endif
 };
 
 inline const StyleProperties* StyleRule::propertiesWithoutDeferredParsing() const
@@ -176,7 +199,7 @@ private:
 
 class StyleRulePage final : public StyleRuleBase {
 public:
-    static Ref<StyleRulePage> create(Ref<StyleProperties>&& properties) { return adoptRef(*new StyleRulePage(WTFMove(properties))); }
+    static Ref<StyleRulePage> create(Ref<StyleProperties>&& properties, CSSSelectorList&& selectors) { return adoptRef(*new StyleRulePage(WTFMove(properties), WTFMove(selectors))); }
 
     ~StyleRulePage();
 
@@ -184,13 +207,12 @@ public:
     const StyleProperties& properties() const { return m_properties; }
     MutableStyleProperties& mutableProperties();
 
-    void parserAdoptSelectorVector(Vector<std::unique_ptr<CSSParserSelector>>& selectors) { m_selectorList.adoptSelectorVector(selectors); }
-    void wrapperAdoptSelectorList(CSSSelectorList& selectors) { m_selectorList = WTFMove(selectors); }
+    void wrapperAdoptSelectorList(CSSSelectorList&& selectors) { m_selectorList = WTFMove(selectors); }
 
     Ref<StyleRulePage> copy() const { return adoptRef(*new StyleRulePage(*this)); }
 
 private:
-    explicit StyleRulePage(Ref<StyleProperties>&&);
+    explicit StyleRulePage(Ref<StyleProperties>&&, CSSSelectorList&&);
     StyleRulePage(const StyleRulePage&);
     
     Ref<StyleProperties> m_properties;
@@ -198,6 +220,7 @@ private:
 };
 
 class DeferredStyleGroupRuleList final {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     DeferredStyleGroupRuleList(const CSSParserTokenRange&, CSSDeferredParser&);
     
@@ -320,7 +343,7 @@ private:
 
 class StyleRuleNamespace final : public StyleRuleBase {
 public:
-    static Ref<StyleRuleNamespace> create(AtomicString prefix, AtomicString uri)
+    static Ref<StyleRuleNamespace> create(AtomString prefix, AtomString uri)
     {
         return adoptRef(*new StyleRuleNamespace(prefix, uri));
     }
@@ -329,15 +352,15 @@ public:
 
     Ref<StyleRuleNamespace> copy() const { return adoptRef(*new StyleRuleNamespace(*this)); }
     
-    AtomicString prefix() const { return m_prefix; }
-    AtomicString uri() const { return m_uri; }
+    AtomString prefix() const { return m_prefix; }
+    AtomString uri() const { return m_uri; }
 
 private:
-    StyleRuleNamespace(AtomicString prefix, AtomicString uri);
+    StyleRuleNamespace(AtomString prefix, AtomString uri);
     StyleRuleNamespace(const StyleRuleNamespace&);
     
-    AtomicString m_prefix;
-    AtomicString m_uri;
+    AtomString m_prefix;
+    AtomString m_uri;
 };
     
 } // namespace WebCore

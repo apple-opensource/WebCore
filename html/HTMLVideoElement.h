@@ -36,6 +36,7 @@ class HTMLImageLoader;
 class RenderVideo;
 
 class HTMLVideoElement final : public HTMLMediaElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLVideoElement);
 public:
     WEBCORE_EXPORT static Ref<HTMLVideoElement> create(Document&);
     static Ref<HTMLVideoElement> create(const QualifiedName&, Document&, bool createdByParser);
@@ -58,6 +59,10 @@ public:
 #if ENABLE(MEDIA_STATISTICS)
     unsigned webkitDecodedFrameCount() const;
     unsigned webkitDroppedFrameCount() const;
+#endif
+
+#if ENABLE(FULLSCREEN_API) && PLATFORM(IOS_FAMILY)
+    void webkitRequestFullscreen() override;
 #endif
 
     // Used by canvas to gain raw pixel access
@@ -96,14 +101,14 @@ private:
     void scheduleResizeEventIfSizeChanged() final;
     bool rendererIsNeeded(const RenderStyle&) final;
     void didAttachRenderers() final;
-    void parseAttribute(const QualifiedName&, const AtomicString&) final;
+    void parseAttribute(const QualifiedName&, const AtomString&) final;
     bool isPresentationAttribute(const QualifiedName&) const final;
-    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) final;
+    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
     bool isVideo() const final { return true; }
     bool hasVideo() const final { return player() && player()->hasVideo(); }
     bool supportsFullscreen(HTMLMediaElementEnums::VideoFullscreenMode) const final;
     bool isURLAttribute(const Attribute&) const final;
-    const AtomicString& imageSourceURL() const final;
+    const AtomString& imageSourceURL() const final;
 
     bool hasAvailableVideoFrame() const;
     void updateDisplayState() final;
@@ -114,7 +119,7 @@ private:
 
     std::unique_ptr<HTMLImageLoader> m_imageLoader;
 
-    AtomicString m_defaultPosterURL;
+    AtomString m_defaultPosterURL;
 
     unsigned m_lastReportedVideoWidth { 0 };
     unsigned m_lastReportedVideoHeight { 0 };

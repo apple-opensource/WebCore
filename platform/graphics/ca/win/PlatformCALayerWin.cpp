@@ -39,8 +39,6 @@
 #include "TileController.h"
 #include "WebTiledBackingLayerWin.h"
 #include <QuartzCore/CoreAnimationCF.h>
-#include <WebKitSystemInterface/WebKitSystemInterface.h>
-#include <wtf/CurrentTime.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/StringBuilder.h>
 
@@ -74,7 +72,10 @@ static CFStringRef toCACFFilterType(PlatformCALayer::FilterType type)
 static AbstractCACFLayerTreeHost* layerTreeHostForLayer(const PlatformCALayer* layer)
 {
     // We need the AbstractCACFLayerTreeHost associated with this layer, which is stored in the UserData of the CACFContext
-    void* userData = wkCACFLayerGetContextUserData(layer->platformLayer());
+    void* userData = nullptr;
+    if (CACFContextRef context = CACFLayerGetContext(layer->platformLayer()))
+        userData = CACFContextGetUserData(context);
+
     if (!userData)
         return nullptr;
 
@@ -133,7 +134,6 @@ static void layoutSublayersProc(CACFLayerRef caLayer)
 
 PlatformCALayerWin::PlatformCALayerWin(LayerType layerType, PlatformLayer* layer, PlatformCALayerClient* owner)
     : PlatformCALayer(layer ? LayerTypeCustom : layerType, owner)
-    , m_customAppearance(GraphicsLayer::NoCustomAppearance)
 {
     if (layer) {
         m_layer = layer;
@@ -208,7 +208,7 @@ PlatformCALayer* PlatformCALayerWin::rootLayer() const
     return host ? host->rootLayer() : nullptr;
 }
 
-void PlatformCALayerWin::animationStarted(const String& animationKey, CFTimeInterval beginTime)
+void PlatformCALayerWin::animationStarted(const String& animationKey, MonotonicTime beginTime)
 {
     // Update start time for any animation not yet started
     CFTimeInterval cacfBeginTime = currentTimeToMediaTime(beginTime);
@@ -536,6 +536,11 @@ void PlatformCALayerWin::setSupportsSubpixelAntialiasedText(bool)
 {
 }
 
+bool PlatformCALayerWin::hasContents() const
+{
+    return !!CACFLayerGetContents(m_layer.get());
+}
+
 CFTypeRef PlatformCALayerWin::contents() const
 {
     return CACFLayerGetContents(m_layer.get());
@@ -671,7 +676,7 @@ void PlatformCALayerWin::setShapeRoundedRect(const FloatRoundedRect&)
 WindRule PlatformCALayerWin::shapeWindRule() const
 {
     // FIXME: implement.
-    return RULE_NONZERO;
+    return WindRule::NonZero;
 }
 
 void PlatformCALayerWin::setShapeWindRule(WindRule)
@@ -699,37 +704,37 @@ static void printIndent(StringBuilder& builder, int indent)
 static void printTransform(StringBuilder& builder, const CATransform3D& transform)
 {
     builder.append('[');
-    builder.appendNumber(transform.m11);
+    builder.appendFixedPrecisionNumber(transform.m11);
     builder.append(' ');
-    builder.appendNumber(transform.m12);
+    builder.appendFixedPrecisionNumber(transform.m12);
     builder.append(' ');
-    builder.appendNumber(transform.m13);
+    builder.appendFixedPrecisionNumber(transform.m13);
     builder.append(' ');
-    builder.appendNumber(transform.m14);
+    builder.appendFixedPrecisionNumber(transform.m14);
     builder.append("; ");
-    builder.appendNumber(transform.m21);
+    builder.appendFixedPrecisionNumber(transform.m21);
     builder.append(' ');
-    builder.appendNumber(transform.m22);
+    builder.appendFixedPrecisionNumber(transform.m22);
     builder.append(' ');
-    builder.appendNumber(transform.m23);
+    builder.appendFixedPrecisionNumber(transform.m23);
     builder.append(' ');
-    builder.appendNumber(transform.m24);
+    builder.appendFixedPrecisionNumber(transform.m24);
     builder.append("; ");
-    builder.appendNumber(transform.m31);
+    builder.appendFixedPrecisionNumber(transform.m31);
     builder.append(' ');
-    builder.appendNumber(transform.m32);
+    builder.appendFixedPrecisionNumber(transform.m32);
     builder.append(' ');
-    builder.appendNumber(transform.m33);
+    builder.appendFixedPrecisionNumber(transform.m33);
     builder.append(' ');
-    builder.appendNumber(transform.m34);
+    builder.appendFixedPrecisionNumber(transform.m34);
     builder.append("; ");
-    builder.appendNumber(transform.m41);
+    builder.appendFixedPrecisionNumber(transform.m41);
     builder.append(' ');
-    builder.appendNumber(transform.m42);
+    builder.appendFixedPrecisionNumber(transform.m42);
     builder.append(' ');
-    builder.appendNumber(transform.m43);
+    builder.appendFixedPrecisionNumber(transform.m43);
     builder.append(' ');
-    builder.appendNumber(transform.m44);
+    builder.appendFixedPrecisionNumber(transform.m44);
     builder.append(']');
 }
 
@@ -759,6 +764,7 @@ static void printLayer(StringBuilder& builder, const PlatformCALayer* layer, int
     char* layerTypeName = nullptr;
     switch (layer->layerType()) {
     case PlatformCALayer::LayerTypeLayer: layerTypeName = "layer"; break;
+    case PlatformCALayer::LayerTypeEditableImageLayer:
     case PlatformCALayer::LayerTypeWebLayer: layerTypeName = "web-layer"; break;
     case PlatformCALayer::LayerTypeSimpleLayer: layerTypeName = "simple-layer"; break;
     case PlatformCALayer::LayerTypeTransformLayer: layerTypeName = "transform-layer"; break;
@@ -772,32 +778,32 @@ static void printLayer(StringBuilder& builder, const PlatformCALayer* layer, int
     case PlatformCALayer::LayerTypeShapeLayer: layerTypeName = "shape-layer"; break;
     case PlatformCALayer::LayerTypeLightSystemBackdropLayer: layerTypeName = "light-system-backdrop-layer"; break;
     case PlatformCALayer::LayerTypeDarkSystemBackdropLayer: layerTypeName = "dark-system-backdrop-layer"; break;
-    case PlatformCALayer::LayerTypeScrollingLayer: layerTypeName = "scrolling-layer"; break;
+    case PlatformCALayer::LayerTypeScrollContainerLayer: layerTypeName = "scroll-container-layer"; break;
     case PlatformCALayer::LayerTypeCustom: layerTypeName = "custom-layer"; break;
     }
 
     builder.append("(");
     builder.append(layerTypeName);
     builder.append(" [");
-    builder.appendNumber(layerPosition.x());
+    builder.appendFixedPrecisionNumber(layerPosition.x());
     builder.append(' ');
-    builder.appendNumber(layerPosition.y());
+    builder.appendFixedPrecisionNumber(layerPosition.y());
     builder.append(' ');
-    builder.appendNumber(layerPosition.z());
+    builder.appendFixedPrecisionNumber(layerPosition.z());
     builder.append("] [");
-    builder.appendNumber(layerBounds.x());
+    builder.appendFixedPrecisionNumber(layerBounds.x());
     builder.append(' ');
-    builder.appendNumber(layerBounds.y());
+    builder.appendFixedPrecisionNumber(layerBounds.y());
     builder.append(' ');
-    builder.appendNumber(layerBounds.width());
+    builder.appendFixedPrecisionNumber(layerBounds.width());
     builder.append(' ');
-    builder.appendNumber(layerBounds.height());
+    builder.appendFixedPrecisionNumber(layerBounds.height());
     builder.append("] [");
-    builder.appendNumber(layerAnchorPoint.x());
+    builder.appendFixedPrecisionNumber(layerAnchorPoint.x());
     builder.append(' ');
-    builder.appendNumber(layerAnchorPoint.y());
+    builder.appendFixedPrecisionNumber(layerAnchorPoint.y());
     builder.append(' ');
-    builder.appendNumber(layerAnchorPoint.z());
+    builder.appendFixedPrecisionNumber(layerAnchorPoint.z());
     builder.append("] superlayer=");
     builder.appendNumber(reinterpret_cast<unsigned long long>(layer->superlayer()));
 
@@ -816,7 +822,7 @@ static void printLayer(StringBuilder& builder, const PlatformCALayer* layer, int
         builder.append('\n');
         printIndent(builder, indent + 1);
         builder.append("(borderWidth ");
-        builder.appendNumber(borderWidth);
+        builder.appendFixedPrecisionNumber(borderWidth);
         builder.append(')');
     }
 
@@ -845,7 +851,7 @@ static void printLayer(StringBuilder& builder, const PlatformCALayer* layer, int
         builder.append('\n');
         printIndent(builder, indent + 1);
         builder.append("(opacity ");
-        builder.appendNumber(layerOpacity);
+        builder.appendFixedPrecisionNumber(layerOpacity);
         builder.append(')');
     }
 
@@ -921,15 +927,15 @@ String PlatformCALayerWin::layerTreeAsString() const
 
     StringBuilder builder;
     builder.append("\n\n** Render tree at time ");
-    builder.appendNumber(monotonicallyIncreasingTime());
+    builder.appendFixedPrecisionNumber(MonotonicTime::now().secondsSinceEpoch().seconds());
     builder.append(" (bounds ");
-    builder.appendNumber(rootBounds.origin.x);
+    builder.appendFixedPrecisionNumber(rootBounds.origin.x);
     builder.append(", ");
-    builder.appendNumber(rootBounds.origin.y);
+    builder.appendFixedPrecisionNumber(rootBounds.origin.y);
     builder.append(' ');
-    builder.appendNumber(rootBounds.size.width);
+    builder.appendFixedPrecisionNumber(rootBounds.size.width);
     builder.append('x');
-    builder.appendNumber(rootBounds.size.height);
+    builder.appendFixedPrecisionNumber(rootBounds.size.height);
     builder.append(") **\n\n");
 
     // Print layer tree from the root
@@ -941,6 +947,12 @@ String PlatformCALayerWin::layerTreeAsString() const
 Ref<PlatformCALayer> PlatformCALayerWin::createCompatibleLayer(PlatformCALayer::LayerType layerType, PlatformCALayerClient* client) const
 {
     return PlatformCALayerWin::create(layerType, client);
+}
+
+GraphicsLayer::EmbeddedViewID PlatformCALayerWin::embeddedViewID() const
+{
+    ASSERT_NOT_REACHED();
+    return 0;
 }
 
 TiledBacking* PlatformCALayerWin::tiledBacking()
@@ -964,7 +976,7 @@ void PlatformCALayerWin::drawTextAtPoint(CGContextRef context, CGFloat x, CGFloa
 
     desc.setComputedSize(scale.width * fontSize);
 
-    FontCascade font = FontCascade(desc, 0, 0);
+    FontCascade font = FontCascade(WTFMove(desc), 0, 0);
     font.update(nullptr);
 
     GraphicsContext cg(context);

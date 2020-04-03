@@ -26,14 +26,14 @@
 #include "config.h"
 #include "LegacyCDMSessionClearKey.h"
 
-#include "JSMainThreadExecState.h"
+#include "JSExecState.h"
 #include "Logging.h"
 #include "TextEncoding.h"
 #include "WebKitMediaKeyError.h"
-#include <runtime/JSGlobalObject.h>
-#include <runtime/JSLock.h>
-#include <runtime/JSONObject.h>
-#include <runtime/VM.h>
+#include <JavaScriptCore/JSGlobalObject.h>
+#include <JavaScriptCore/JSLock.h>
+#include <JavaScriptCore/JSONObject.h>
+#include <JavaScriptCore/VM.h>
 #include <wtf/UUID.h>
 #include <wtf/text/Base64.h>
 
@@ -194,7 +194,7 @@ RefPtr<ArrayBuffer> CDMSessionClearKey::cachedKeyForKeyID(const String& keyId) c
         return nullptr;
 
     auto keyData = m_cachedKeys.get(keyId);
-    RefPtr<Uint8Array> keyDataArray = Uint8Array::create(keyData.data(), keyData.size());
+    auto keyDataArray = Uint8Array::create(keyData.data(), keyData.size());
     return keyDataArray->unsharedBuffer();
 }
 

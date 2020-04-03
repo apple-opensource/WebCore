@@ -47,7 +47,7 @@ namespace WebCore {
 using namespace HTMLNames;
 
 HTMLScriptRunner::HTMLScriptRunner(Document& document, HTMLScriptRunnerHost& host)
-    : m_document(&document)
+    : m_document(makeWeakPtr(document))
     , m_host(host)
     , m_scriptNestingLevel(0)
     , m_hasScriptsWaitingForStylesheets(false)
@@ -85,7 +85,7 @@ static URL documentURLForScriptExecution(Document* document)
 
 inline Ref<Event> createScriptLoadEvent()
 {
-    return Event::create(eventNames().loadEvent, false, false);
+    return Event::create(eventNames().loadEvent, Event::CanBubble::No, Event::IsCancelable::No);
 }
 
 bool HTMLScriptRunner::isPendingScriptReady(const PendingScript& script)
@@ -258,7 +258,7 @@ void HTMLScriptRunner::runScript(ScriptElement& scriptElement, const TextPositio
         if (m_scriptNestingLevel == 1)
             m_parserBlockingScript = PendingScript::create(scriptElement, scriptStartPosition);
         else
-            scriptElement.executeClassicScript(ScriptSourceCode(scriptElement.element().textContent(), documentURLForScriptExecution(m_document), scriptStartPosition, JSC::SourceProviderSourceType::Program, InlineClassicScript::create(scriptElement)));
+            scriptElement.executeClassicScript(ScriptSourceCode(scriptElement.element().textContent(), documentURLForScriptExecution(m_document.get()), scriptStartPosition, JSC::SourceProviderSourceType::Program, InlineClassicScript::create(scriptElement)));
     } else
         requestParsingBlockingScript(scriptElement);
 }

@@ -26,8 +26,8 @@
 #import "config.h"
 #import "StringUtilities.h"
 
+#import <JavaScriptCore/RegularExpression.h>
 #import <wtf/text/StringBuilder.h>
-#import <yarr/RegularExpression.h>
 
 namespace WebCore {
     
@@ -57,6 +57,17 @@ static String wildcardRegexPatternString(const String& string)
 bool stringMatchesWildcardString(const String& string, const String& wildcardString)
 {
     return JSC::Yarr::RegularExpression(wildcardRegexPatternString(wildcardString), JSC::Yarr::TextCaseInsensitive).match(string) != -1;
+}
+
+Vector<String> webCoreStringVectorFromNSStringArray(NSArray<NSString *> *nsStringArray)
+{
+    Vector<String> stringVector;
+    stringVector.reserveInitialCapacity([nsStringArray count]);
+
+    for (NSString *nsString in nsStringArray)
+        stringVector.uncheckedAppend(nsString);
+
+    return stringVector;
 }
 
 }

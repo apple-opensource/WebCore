@@ -22,8 +22,7 @@
 #include "config.h"
 #include "JSDOMConstructor.h"
 
-#include <runtime/JSCInlines.h>
-
+#include <JavaScriptCore/JSCInlines.h>
 
 namespace WebCore {
 using namespace JSC;
@@ -34,7 +33,7 @@ static EncodedJSValue JSC_HOST_CALL callThrowTypeError(ExecState* exec)
 {
     VM& vm = exec->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    throwTypeError(exec, scope, ASCIILiteral("Constructor requires 'new' operator"));
+    throwTypeError(exec, scope, "Constructor requires 'new' operator"_s);
     return JSValue::encode(jsNull());
 }
 
@@ -42,6 +41,19 @@ CallType JSDOMConstructorBase::getCallData(JSCell*, CallData& callData)
 {
     callData.native.function = callThrowTypeError;
     return CallType::Host;
+}
+
+String JSDOMConstructorBase::className(const JSObject*, JSC::VM&)
+{
+    return "Function"_s;
+}
+
+String JSDOMConstructorBase::toStringName(const JSObject* object, JSC::ExecState* exec)
+{
+    VM& vm = exec->vm();
+    const ClassInfo* info = object->classInfo(vm);
+    ASSERT(info);
+    return info->methodTable.className(object, vm);
 }
 
 } // namespace WebCore

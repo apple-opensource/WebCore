@@ -32,8 +32,8 @@
 
 namespace WebCore {
 
-ApplePayShippingContactSelectedEvent::ApplePayShippingContactSelectedEvent(const AtomicString& type, unsigned version, const PaymentContact& shippingContact)
-    : Event(type, false, false)
+ApplePayShippingContactSelectedEvent::ApplePayShippingContactSelectedEvent(const AtomString& type, unsigned version, const PaymentContact& shippingContact)
+    : Event(type, CanBubble::No, IsCancelable::No)
     , m_shippingContact(shippingContact.toApplePayPaymentContact(version))
 {
 }

@@ -60,7 +60,7 @@ MessagePortChannel::~MessagePortChannel()
     m_registry.messagePortChannelDestroyed(*this);
 }
 
-std::optional<ProcessIdentifier> MessagePortChannel::processForPort(const MessagePortIdentifier& port)
+Optional<ProcessIdentifier> MessagePortChannel::processForPort(const MessagePortIdentifier& port)
 {
     ASSERT(isMainThread());
     ASSERT(port == m_ports[0] || port == m_ports[1]);
@@ -87,6 +87,7 @@ void MessagePortChannel::entanglePortWithProcess(const MessagePortIdentifier& po
     ASSERT(!m_processes[i] || *m_processes[i] == process);
     m_processes[i] = process;
     m_entangledToProcessProtectors[i] = this;
+    m_pendingMessagePortTransfers[i].remove(this);
 }
 
 void MessagePortChannel::disentanglePort(const MessagePortIdentifier& port)
@@ -99,7 +100,8 @@ void MessagePortChannel::disentanglePort(const MessagePortIdentifier& port)
     size_t i = port == m_ports[0] ? 0 : 1;
 
     ASSERT(m_processes[i] || m_isClosed[i]);
-    m_processes[i] = std::nullopt;
+    m_processes[i] = WTF::nullopt;
+    m_pendingMessagePortTransfers[i].add(this);
 
     // This set of steps is to guarantee that the lock is unlocked before the
     // last ref to this object is released.
@@ -113,7 +115,7 @@ void MessagePortChannel::closePort(const MessagePortIdentifier& port)
     ASSERT(port == m_ports[0] || port == m_ports[1]);
     size_t i = port == m_ports[0] ? 0 : 1;
 
-    m_processes[i] = std::nullopt;
+    m_processes[i] = WTF::nullopt;
     m_isClosed[i] = true;
 
     // This set of steps is to guarantee that the lock is unlocked before the
@@ -132,24 +134,6 @@ bool MessagePortChannel::postMessageToRemote(MessageWithMessagePorts&& message, 
 
     ASSERT(remoteTarget == m_ports[0] || remoteTarget == m_ports[1]);
     size_t i = remoteTarget == m_ports[0] ? 0 : 1;
-
-    for (auto& channelPair : message.transferredPorts) {
-        auto* channel = m_registry.existingChannelContainingPort(channelPair.first);
-        // One of the ports in the channel might have been closed, therefore removing record of the channel.
-        // That's okay; such ports can still be transferred. We just don't have to protect the channel.
-        if (!channel)
-            continue;
-
-        ASSERT(channel->includesPort(channelPair.second));
-
-#ifndef NDEBUG
-        if (auto* otherChannel = m_registry.existingChannelContainingPort(channelPair.second))
-            ASSERT(channel == otherChannel);
-#endif
-        // Having a pending message should keep a port alive with a ref.
-        // The ref will be cleared after the batch of pending messages has been delivered.
-        m_pendingMessagePortTransfers[i].add(channel);
-    }
 
     m_pendingMessages[i].append(WTFMove(message));
     LOG(MessagePorts, "MessagePortChannel %s (%p) now has %zu messages pending on port %s", logString().utf8().data(), this, m_pendingMessages[i].size(), remoteTarget.logString().utf8().data());
@@ -184,24 +168,21 @@ void MessagePortChannel::takeAllMessagesForPort(const MessagePortIdentifier& por
 
     ++m_messageBatchesInFlight;
 
-    LOG(MessagePorts, "There are %zu messages to take for port %s. Taking them now, messages in flight is now %llu", result.size(), port.logString().utf8().data(), m_messageBatchesInFlight);
+    LOG(MessagePorts, "There are %zu messages to take for port %s. Taking them now, messages in flight is now %" PRIu64, result.size(), port.logString().utf8().data(), m_messageBatchesInFlight);
 
     auto size = result.size();
-    HashSet<RefPtr<MessagePortChannel>> transferredPortProtectors;
-    transferredPortProtectors.swap(m_pendingMessagePortTransfers[i]);
-
-    callback(WTFMove(result), [size, this, port, protectedThis = WTFMove(m_pendingMessageProtectors[i]), transferredPortProtectors = WTFMove(transferredPortProtectors)] {
+    callback(WTFMove(result), [size, this, port, protectedThis = WTFMove(m_pendingMessageProtectors[i])] {
         UNUSED_PARAM(port);
 #if LOG_DISABLED
         UNUSED_PARAM(size);
 #endif
         --m_messageBatchesInFlight;
-        LOG(MessagePorts, "Message port channel %s was notified that a batch of %zu message port messages targeted for port %s just completed dispatch, in flight is now %llu", logString().utf8().data(), size, port.logString().utf8().data(), m_messageBatchesInFlight);
+        LOG(MessagePorts, "Message port channel %s was notified that a batch of %zu message port messages targeted for port %s just completed dispatch, in flight is now %" PRIu64, logString().utf8().data(), size, port.logString().utf8().data(), m_messageBatchesInFlight);
 
     });
 }
 
-void MessagePortChannel::checkRemotePortForActivity(const MessagePortIdentifier& remotePort, CompletionHandler<void(MessagePortChannelProvider::HasActivity)>&& callback)
+void MessagePortChannel::checkRemotePortForActivity(const MessagePortIdentifier& remotePort, Function<void(MessagePortChannelProvider::HasActivity)>&& callback)
 {
     ASSERT(isMainThread());
     ASSERT(remotePort == m_ports[0] || remotePort == m_ports[1]);
@@ -226,7 +207,7 @@ void MessagePortChannel::checkRemotePortForActivity(const MessagePortIdentifier&
         return;
     }
 
-    auto outerCallback = CompletionHandler<void(MessagePortChannelProvider::HasActivity)> { [this, protectedThis = makeRef(*this), callback = WTFMove(callback)] (MessagePortChannelProvider::HasActivity hasActivity) {
+    auto outerCallback = Function<void(MessagePortChannelProvider::HasActivity)> { [this, protectedThis = makeRef(*this), callback = WTFMove(callback)] (MessagePortChannelProvider::HasActivity hasActivity) mutable {
         if (hasActivity == MessagePortChannelProvider::HasActivity::Yes) {
             callback(hasActivity);
             return;

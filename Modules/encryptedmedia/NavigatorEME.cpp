@@ -34,6 +34,7 @@
 #include "CDM.h"
 #include "Document.h"
 #include "JSMediaKeySystemAccess.h"
+#include "Logging.h"
 
 namespace WebCore {
 
@@ -43,6 +44,7 @@ void NavigatorEME::requestMediaKeySystemAccess(Navigator&, Document& document, c
 {
     // https://w3c.github.io/encrypted-media/#dom-navigator-requestmediakeysystemaccess
     // W3C Editor's Draft 09 November 2016
+    LOG(EME, "EME - request media key system access for %s", keySystem.utf8().data());
 
     // When this method is invoked, the user agent must run the following steps:
     // 1. If keySystem is the empty string, return a promise rejected with a newly created TypeError.
@@ -60,12 +62,13 @@ void NavigatorEME::requestMediaKeySystemAccess(Navigator&, Document& document, c
         // 6.1. If keySystem is not one of the Key Systems supported by the user agent, reject promise with a NotSupportedError.
         //      String comparison is case-sensitive.
         if (!CDM::supportsKeySystem(keySystem)) {
+            LOG(EME, "EME - %s is not supported", keySystem.utf8().data());
             promise->reject(NotSupportedError);
             return;
         }
 
         // 6.2. Let implementation be the implementation of keySystem.
-        RefPtr<CDM> implementation = CDM::create(document, keySystem);
+        auto implementation = CDM::create(document, keySystem);
         tryNextSupportedConfiguration(WTFMove(implementation), WTFMove(supportedConfigurations), WTFMove(promise));
     });
 }
@@ -77,10 +80,10 @@ static void tryNextSupportedConfiguration(RefPtr<CDM>&& implementation, Vector<M
         // 6.3.1. Let candidate configuration be the value.
         // 6.3.2. Let supported configuration be the result of executing the Get Supported Configuration
         //        algorithm on implementation, candidate configuration, and origin.
-        MediaKeySystemConfiguration candidateCofiguration = WTFMove(supportedConfigurations.first());
+        MediaKeySystemConfiguration candidateConfiguration = WTFMove(supportedConfigurations.first());
         supportedConfigurations.remove(0);
 
-        CDM::SupportedConfigurationCallback callback = [implementation = implementation, supportedConfigurations = WTFMove(supportedConfigurations), promise] (std::optional<MediaKeySystemConfiguration> supportedConfiguration) mutable {
+        CDM::SupportedConfigurationCallback callback = [implementation = implementation, supportedConfigurations = WTFMove(supportedConfigurations), promise] (Optional<MediaKeySystemConfiguration> supportedConfiguration) mutable {
             // 6.3.3. If supported configuration is not NotSupported, run the following steps:
             if (supportedConfiguration) {
                 // 6.3.3.1. Let access be a new MediaKeySystemAccess object, and initialize it as follows:
@@ -99,7 +102,7 @@ static void tryNextSupportedConfiguration(RefPtr<CDM>&& implementation, Vector<M
 
             tryNextSupportedConfiguration(WTFMove(implementation), WTFMove(supportedConfigurations), WTFMove(promise));
         };
-        implementation->getSupportedConfiguration(WTFMove(candidateCofiguration), WTFMove(callback));
+        implementation->getSupportedConfiguration(WTFMove(candidateConfiguration), WTFMove(callback));
         return;
     }
 

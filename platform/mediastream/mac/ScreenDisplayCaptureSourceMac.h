@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,11 +28,11 @@
 #if ENABLE(MEDIA_STREAM) && PLATFORM(MAC)
 
 #include "DisplayCaptureSourceCocoa.h"
+#include "IOSurface.h"
 #include <CoreGraphics/CGDisplayConfiguration.h>
 #include <CoreGraphics/CGDisplayStream.h>
 #include <wtf/Lock.h>
 #include <wtf/OSObjectPtr.h>
-#include <wtf/WeakPtr.h>
 
 typedef struct __CVBuffer *CVPixelBufferRef;
 typedef struct opaqueCMSampleBuffer *CMSampleBufferRef;
@@ -41,37 +41,44 @@ namespace WebCore {
 
 class ScreenDisplayCaptureSourceMac : public DisplayCaptureSourceCocoa {
 public:
-    static CaptureSourceOrError create(const String&, const MediaConstraints*);
+    static CaptureSourceOrError create(String&&, const MediaConstraints*);
 
-    WEBCORE_EXPORT static VideoCaptureFactory& factory();
-
-    WEBCORE_EXPORT static std::optional<CGDirectDisplayID> updateDisplayID(CGDirectDisplayID);
+    static Optional<CaptureDevice> screenCaptureDeviceWithPersistentID(const String&);
+    static void screenCaptureDevices(Vector<CaptureDevice>&);
 
 private:
-    ScreenDisplayCaptureSourceMac(uint32_t);
+    ScreenDisplayCaptureSourceMac(uint32_t, String&&);
     virtual ~ScreenDisplayCaptureSourceMac();
 
     static void displayReconfigurationCallBack(CGDirectDisplayID, CGDisplayChangeSummaryFlags, void*);
 
     void displayWasReconfigured(CGDirectDisplayID, CGDisplayChangeSummaryFlags);
 
-    void frameAvailable(CGDisplayStreamFrameStatus, uint64_t, IOSurfaceRef, CGDisplayStreamUpdateRef);
+    DisplayCaptureSourceCocoa::DisplayFrameType generateFrame() final;
+    RealtimeMediaSourceSettings::DisplaySurfaceType surfaceType() const final { return RealtimeMediaSourceSettings::DisplaySurfaceType::Monitor; }
 
-    void generateFrame() final;
     void startProducingData() final;
     void stopProducingData() final;
-    bool applySize(const IntSize&) final;
-    bool applyFrameRate(double) final;
     void commitConfiguration() final;
+    CaptureDevice::DeviceType deviceType() const final { return CaptureDevice::DeviceType::Screen; }
 
-    RetainPtr<CMSampleBufferRef> sampleBufferFromPixelBuffer(CVPixelBufferRef);
-    RetainPtr<CVPixelBufferRef> pixelBufferFromIOSurface(IOSurfaceRef);
     bool createDisplayStream();
     void startDisplayStream();
-    
+
+#if !RELEASE_LOG_DISABLED
+    const char* logClassName() const override { return "ScreenDisplayCaptureSourceMac"; }
+#endif
+
     class DisplaySurface {
     public:
         DisplaySurface() = default;
+        explicit DisplaySurface(IOSurfaceRef surface)
+            : m_surface(surface)
+        {
+            if (m_surface)
+                IOSurfaceIncrementUseCount(m_surface.get());
+        }
+
         ~DisplaySurface()
         {
             if (m_surface)
@@ -94,18 +101,12 @@ private:
         RetainPtr<IOSurfaceRef> m_surface;
     };
 
-    mutable Lock m_currentFrameMutex;
+    void newFrame(CGDisplayStreamFrameStatus, DisplaySurface&&);
+
     DisplaySurface m_currentFrame;
     RetainPtr<CGDisplayStreamRef> m_displayStream;
-    RetainPtr<CFMutableDictionaryRef> m_bufferAttributes;
-    CGDisplayStreamFrameAvailableHandler m_frameAvailableBlock;
-    WeakPtrFactory<ScreenDisplayCaptureSourceMac> m_weakFactory;
-    MediaTime m_presentationTimeStamp;
-    MediaTime m_frameDuration;
-
     OSObjectPtr<dispatch_queue_t> m_captureQueue;
 
-    double m_lastFrameTime { NAN };
     uint32_t m_displayID { 0 };
     bool m_isRunning { false };
     bool m_observingDisplayChanges { false };

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Igalia S.L. All rights reserved.
+ * Copyright (C) 2017-2018 Igalia S.L. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,34 +25,42 @@
 #pragma once
 
 #include "Event.h"
+#include "VRDisplay.h"
 #include "VRDisplayEventReason.h"
 
 namespace WebCore {
 
-class VRDisplay;
-
 class VRDisplayEvent final : public Event {
 public:
+    static Ref<VRDisplayEvent> create(const AtomString& type, const RefPtr<VRDisplay>& display, Optional<VRDisplayEventReason>&& reason)
+    {
+        return adoptRef(*new VRDisplayEvent(type, display, WTFMove(reason)));
+    }
+
     struct Init : EventInit {
         RefPtr<VRDisplay> display;
-        VRDisplayEventReason reason;
+        Optional<VRDisplayEventReason> reason;
     };
 
-    static Ref<VRDisplayEvent> create(const AtomicString& type, const Init& initializer, IsTrusted isTrusted = IsTrusted::No)
+    static Ref<VRDisplayEvent> create(const AtomString& type, const Init& initializer, IsTrusted isTrusted = IsTrusted::No)
     {
         return adoptRef(*new VRDisplayEvent(type, initializer, isTrusted));
     }
 
     virtual ~VRDisplayEvent();
 
-    RefPtr<VRDisplay> display() const;
-    VRDisplayEventReason reason() const;
+    RefPtr<VRDisplay> display() const { return m_display; }
+    const Optional<VRDisplayEventReason>& reason() const { return m_reason; }
 
 private:
-    VRDisplayEvent(const AtomicString&, const Init&, IsTrusted);
+    VRDisplayEvent(const AtomString&, const Init&, IsTrusted);
+    VRDisplayEvent(const AtomString&, const RefPtr<VRDisplay>&, Optional<VRDisplayEventReason>&&);
 
     // Event
     EventInterface eventInterface() const override;
+
+    RefPtr<VRDisplay> m_display;
+    Optional<VRDisplayEventReason> m_reason;
 };
 
 } // namespace WebCore

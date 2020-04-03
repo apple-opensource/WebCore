@@ -59,7 +59,7 @@ public:
     virtual Type type() const = 0;
 
     virtual const Path& path(const FloatRect&) = 0;
-    virtual WindRule windRule() const { return RULE_NONZERO; }
+    virtual WindRule windRule() const { return WindRule::NonZero; }
 
     virtual bool canBlend(const BasicShape&) const = 0;
     virtual Ref<BasicShape> blend(const BasicShape& from, double) const = 0;
@@ -86,13 +86,6 @@ public:
         , m_length(length)
     {
         updateComputedLength();
-    }
-
-    BasicShapeCenterCoordinate(const BasicShapeCenterCoordinate& other)
-        : m_direction(other.direction())
-        , m_length(other.length())
-        , m_computedLength(other.m_computedLength)
-    {
     }
 
     Direction direction() const { return m_direction; }
@@ -138,10 +131,6 @@ public:
     explicit BasicShapeRadius(Type t)
         : m_value(Undefined)
         , m_type(t)
-    { }
-    BasicShapeRadius(const BasicShapeRadius& other)
-        : m_value(other.value())
-        , m_type(other.type())
     { }
 
     const Length& value() const { return m_value; }
@@ -260,7 +249,7 @@ private:
 
     bool operator==(const BasicShape&) const override;
 
-    WindRule m_windRule { RULE_NONZERO };
+    WindRule m_windRule { WindRule::NonZero };
     Vector<Length> m_values;
 };
 
@@ -289,7 +278,7 @@ private:
     bool operator==(const BasicShape&) const override;
 
     std::unique_ptr<SVGPathByteStream> m_byteStream;
-    WindRule m_windRule { RULE_NONZERO };
+    WindRule m_windRule { WindRule::NonZero };
 };
 
 class BasicShapeInset final : public BasicShape {

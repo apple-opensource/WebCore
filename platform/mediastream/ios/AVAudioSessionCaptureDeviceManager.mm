@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,19 +23,17 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#include "AVAudioSessionCaptureDeviceManager.h"
+#import "config.h"
+#import "AVAudioSessionCaptureDeviceManager.h"
 
-#if ENABLE(MEDIA_STREAM) && PLATFORM(IOS)
+#if ENABLE(MEDIA_STREAM) && PLATFORM(IOS_FAMILY)
 
-#include "AVAudioSessionCaptureDevice.h"
-#include <AVFoundation/AVAudioSession.h>
-#include <wtf/SoftLinking.h>
-#include <wtf/Vector.h>
+#import "AVAudioSessionCaptureDevice.h"
+#import "RealtimeMediaSourceCenter.h"
+#import <AVFoundation/AVAudioSession.h>
+#import <wtf/Vector.h>
 
-SOFT_LINK_FRAMEWORK(AVFoundation)
-SOFT_LINK_CLASS(AVFoundation, AVAudioSession)
-#define AVAudioSession getAVAudioSessionClass()
+#import <pal/cocoa/AVFoundationSoftLink.h>
 
 void* AvailableInputsContext = &AvailableInputsContext;
 
@@ -91,14 +89,14 @@ const Vector<CaptureDevice>& AVAudioSessionCaptureDeviceManager::captureDevices(
     return m_devices.value();
 }
 
-std::optional<CaptureDevice> AVAudioSessionCaptureDeviceManager::captureDeviceWithPersistentID(CaptureDevice::DeviceType type, const String& deviceID)
+Optional<CaptureDevice> AVAudioSessionCaptureDeviceManager::captureDeviceWithPersistentID(CaptureDevice::DeviceType type, const String& deviceID)
 {
     ASSERT_UNUSED(type, type == CaptureDevice::DeviceType::Microphone);
     for (auto& device : captureDevices()) {
         if (device.persistentId() == deviceID)
             return device;
     }
-    return std::nullopt;
+    return WTF::nullopt;
 }
 
 Vector<AVAudioSessionCaptureDevice>& AVAudioSessionCaptureDeviceManager::audioSessionCaptureDevices()
@@ -108,7 +106,7 @@ Vector<AVAudioSessionCaptureDevice>& AVAudioSessionCaptureDeviceManager::audioSe
     return m_audioSessionCaptureDevices.value();
 }
 
-std::optional<AVAudioSessionCaptureDevice> AVAudioSessionCaptureDeviceManager::audioSessionDeviceWithUID(const String& deviceID)
+Optional<AVAudioSessionCaptureDevice> AVAudioSessionCaptureDeviceManager::audioSessionDeviceWithUID(const String& deviceID)
 {
     if (!m_audioSessionCaptureDevices)
         refreshAudioCaptureDevices();
@@ -117,7 +115,7 @@ std::optional<AVAudioSessionCaptureDevice> AVAudioSessionCaptureDeviceManager::a
         if (device.persistentId() == deviceID)
             return device;
     }
-    return std::nullopt;
+    return WTF::nullopt;
 }
 
 void AVAudioSessionCaptureDeviceManager::refreshAudioCaptureDevices()
@@ -126,13 +124,13 @@ void AVAudioSessionCaptureDeviceManager::refreshAudioCaptureDevices()
         m_listener = adoptNS([[WebAVAudioSessionAvailableInputsListener alloc] initWithCallback:[this] {
             refreshAudioCaptureDevices();
         }]);
-        [[AVAudioSession sharedInstance] addObserver:m_listener.get() forKeyPath:@"availableInputs" options:0 context:AvailableInputsContext];
+        [[PAL::getAVAudioSessionClass() sharedInstance] addObserver:m_listener.get() forKeyPath:@"availableInputs" options:0 context:AvailableInputsContext];
     }
 
     Vector<AVAudioSessionCaptureDevice> newAudioDevices;
     Vector<CaptureDevice> newDevices;
 
-    for (AVAudioSessionPortDescription *portDescription in [AVAudioSession sharedInstance].availableInputs) {
+    for (AVAudioSessionPortDescription *portDescription in [PAL::getAVAudioSessionClass() sharedInstance].availableInputs) {
         auto audioDevice = AVAudioSessionCaptureDevice::create(portDescription);
         newDevices.append(audioDevice);
         newAudioDevices.append(WTFMove(audioDevice));
@@ -141,8 +139,7 @@ void AVAudioSessionCaptureDeviceManager::refreshAudioCaptureDevices()
     m_audioSessionCaptureDevices = WTFMove(newAudioDevices);
     m_devices = WTFMove(newDevices);
 
-    for (auto& observer : m_observers.values())
-        observer();
+    deviceChanged();
 }
 
 } // namespace WebCore

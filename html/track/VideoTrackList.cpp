@@ -31,7 +31,7 @@
 
 #include "VideoTrack.h"
 
-using namespace WebCore;
+namespace WebCore {
 
 VideoTrackList::VideoTrackList(HTMLMediaElement* element, ScriptExecutionContext* context)
     : TrackListBase(element, context)
@@ -65,7 +65,7 @@ VideoTrack* VideoTrackList::item(unsigned index) const
     return nullptr;
 }
 
-VideoTrack* VideoTrackList::getTrackById(const AtomicString& id) const
+VideoTrack* VideoTrackList::getTrackById(const AtomString& id) const
 {
     for (auto& inbandTracks : m_inbandTracks) {
         auto& track = downcast<VideoTrack>(*inbandTracks);
@@ -94,4 +94,10 @@ EventTargetInterface VideoTrackList::eventTargetInterface() const
     return VideoTrackListEventTargetInterfaceType;
 }
 
+const char* VideoTrackList::activeDOMObjectName() const
+{
+    return "VideoTrackList";
+}
+
+} // namespace WebCore
 #endif

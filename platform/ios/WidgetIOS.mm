@@ -26,6 +26,8 @@
 #import "config.h"
 #import "Widget.h"
 
+#if PLATFORM(IOS_FAMILY)
+
 #import "Cursor.h"
 #import "Document.h"
 #import "FontCascade.h"
@@ -60,9 +62,8 @@ Widget::Widget(NSView* view)
     init(view);
 }
 
-Widget::~Widget() 
+Widget::~Widget()
 {
-    releasePlatformWidget();
 }
 
 // FIXME: Should move this to Chrome; bad layering that this knows about Frame.
@@ -273,3 +274,5 @@ void Widget::setPlatformWidget(NSView *widget)
 }
 
 }
+
+#endif // PLATFORM(IOS_FAMILY)

@@ -30,7 +30,6 @@
 
 #include "AffineTransform.h"
 #include "GraphicsContext.h"
-#include <CoreGraphics/CoreGraphics.h>
 #include <d2d1.h>
 #include <wtf/MainThread.h>
 
@@ -48,7 +47,7 @@ ID2D1BitmapBrush* Pattern::createPlatformPattern(const GraphicsContext& context,
     brushProperties.transform = patternTransform;
     brushProperties.opacity = alpha;
 
-    auto patternImage = tileImage();
+    auto& patternImage = tileImage();
 
     auto platformContext = context.platformContext();
     RELEASE_ASSERT(platformContext);

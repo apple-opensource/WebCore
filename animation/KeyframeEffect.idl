@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,16 +25,37 @@
 
 [
     EnabledAtRuntime=WebAnimations,
+    Exposed=Window,
+    JSGenerateToNativeObject,
     ConstructorMayThrowException,
-    ConstructorCallWith=ScriptState,
-    Constructor(Element? target, object? keyframes, optional (unrestricted double or KeyframeEffectOptions) options)
+    ConstructorCallWith=ExecState,
+    Constructor(Element? target, object? keyframes, optional (unrestricted double or KeyframeEffectOptions) options),
+    Constructor(KeyframeEffect source)
 ] interface KeyframeEffect : AnimationEffect {
-    readonly attribute Element? target;
-    [MayThrowException, CallWith=ScriptState] void setKeyframes(object? keyframes);
+    attribute Element? target;
+    attribute IterationCompositeOperation iterationComposite;
+    attribute CompositeOperation composite;
+    [CallWith=ExecState] sequence<object> getKeyframes();
+    [MayThrowException, CallWith=ExecState] void setKeyframes(object? keyframes);
 };
 
 dictionary BasePropertyIndexedKeyframe {
-    (double? or sequence<double?>) offset = [];
-    (DOMString or sequence<DOMString>) easing = [];
-    (CompositeOperation or sequence<CompositeOperation>) composite = [];
+    (sequence<double?> or double?) offset = [];
+    (sequence<DOMString> or DOMString) easing = [];
+    (sequence<CompositeOperationOrAuto> or CompositeOperationOrAuto) composite = [];
+};
+
+dictionary BaseKeyframe {
+    double? offset = null;
+    DOMString easing = "linear";
+    CompositeOperationOrAuto composite = "auto";
+};
+
+[
+    JSGenerateToJSObject
+] dictionary BaseComputedKeyframe {
+     double? offset = null;
+     double computedOffset;
+     DOMString easing = "linear";
+     CompositeOperationOrAuto composite = "auto";
 };

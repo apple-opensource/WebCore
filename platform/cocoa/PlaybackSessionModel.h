@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,11 +25,12 @@
 
 #pragma once
 
-#if PLATFORM(IOS) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
+#if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
 
 #include <wtf/Forward.h>
 #include <wtf/Ref.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -37,7 +38,7 @@ class TimeRanges;
 class PlaybackSessionModelClient;
 struct MediaSelectionOption;
 
-class PlaybackSessionModel {
+class PlaybackSessionModel : public CanMakeWeakPtr<PlaybackSessionModel> {
 public:
     virtual ~PlaybackSessionModel() { };
     virtual void addClient(PlaybackSessionModelClient&) = 0;
@@ -58,6 +59,8 @@ public:
     virtual void togglePictureInPicture() = 0;
     virtual void toggleMuted() = 0;
     virtual void setMuted(bool) = 0;
+    virtual void setVolume(double) = 0;
+    virtual void setPlayingOnSecondScreen(bool) = 0;
 
     enum ExternalPlaybackTargetType { TargetTypeNone, TargetTypeAirPlay, TargetTypeTVOut };
 
@@ -81,6 +84,9 @@ public:
     virtual String externalPlaybackLocalizedDeviceName() const = 0;
     virtual bool wirelessVideoPlaybackDisabled() const = 0;
     virtual bool isMuted() const = 0;
+    virtual double volume() const = 0;
+    virtual bool isPictureInPictureSupported() const = 0;
+    virtual bool isPictureInPictureActive() const = 0;
 };
 
 class PlaybackSessionModelClient {
@@ -100,8 +106,13 @@ public:
     virtual void externalPlaybackChanged(bool /* enabled */, PlaybackSessionModel::ExternalPlaybackTargetType, const String& /* localizedDeviceName */) { }
     virtual void wirelessVideoPlaybackDisabledChanged(bool) { }
     virtual void mutedChanged(bool) { }
+    virtual void volumeChanged(double) { }
+    virtual void isPictureInPictureSupportedChanged(bool) { }
+    virtual void pictureInPictureActiveChanged(bool) { }
+    virtual void ensureControlsManager() { }
+    virtual void modelDestroyed() { }
 };
 
 }
 
-#endif // PLATFORM(IOS) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
+#endif // PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))

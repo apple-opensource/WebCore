@@ -30,7 +30,6 @@
 #include "GDIUtilities.h"
 #include "HWndDC.h"
 #include <wtf/Assertions.h>
-#include <wtf/CurrentTime.h>
 #include <wtf/MathExtras.h>
 #include <windows.h>
 #include <windowsx.h>
@@ -85,8 +84,8 @@ PlatformMouseEvent::PlatformMouseEvent(HWND hWnd, UINT message, WPARAM wParam, L
     , m_position(positionForEvent(hWnd, lParam))
     , m_globalPosition(globalPositionForEvent(hWnd, lParam))
     , m_clickCount(0)
-    , m_didActivateWebView(didActivateWebView)
     , m_modifierFlags(wParam)
+    , m_didActivateWebView(didActivateWebView)
 {
     switch (message) {
         case WM_LBUTTONDOWN:

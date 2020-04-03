@@ -30,16 +30,20 @@
 #if USE(APPLE_INTERNAL_SDK)
 
 #if PLATFORM(MAC)
-#import <LaunchServices/LaunchServicesPriv.h>
-#elif PLATFORM(IOS)
+#import <CoreServices/CoreServicesPriv.h>
+#elif PLATFORM(IOS_FAMILY)
 #import <MobileCoreServices/LSAppLinkPriv.h>
+#elif PLATFORM(IOS)
+#import <MobileCoreServices/MobileCoreServicesPriv.h>
 #endif
 
-#endif
+#endif // USE(APPLE_INTERNAL_SDK)
 
+#if HAVE(APP_LINKS)
 @class LSAppLink;
 typedef void (^LSAppLinkCompletionHandler)(LSAppLink *appLink, NSError *error);
 typedef void (^LSAppLinkOpenCompletionHandler)(BOOL success, NSError *error);
+#endif
 
 #if !USE(APPLE_INTERNAL_SDK)
 
@@ -49,6 +53,7 @@ typedef void (^LSAppLinkOpenCompletionHandler)(BOOL success, NSError *error);
 @interface LSBundleProxy : LSResourceProxy <NSSecureCoding>
 @end
 
+#if HAVE(APP_LINKS)
 @interface LSApplicationProxy : LSBundleProxy <NSSecureCoding>
 - (NSString *)localizedNameForContext:(NSString *)context;
 @end
@@ -57,10 +62,21 @@ typedef void (^LSAppLinkOpenCompletionHandler)(BOOL success, NSError *error);
 @end
 
 @interface LSAppLink ()
+#if HAVE(APP_LINKS_WITH_ISENABLED)
++ (NSArray<LSAppLink *> *)appLinksWithURL:(NSURL *)aURL limit:(NSUInteger)limit error:(NSError **)outError;
+- (void)openWithCompletionHandler:(LSAppLinkOpenCompletionHandler)completionHandler;
+@property (nonatomic, getter=isEnabled) BOOL enabled;
+#else
 + (void)getAppLinkWithURL:(NSURL *)aURL completionHandler:(LSAppLinkCompletionHandler)completionHandler;
-+ (void)openWithURL:(NSURL *)aURL completionHandler:(LSAppLinkOpenCompletionHandler)completionHandler;
 - (void)openInWebBrowser:(BOOL)inWebBrowser setAppropriateOpenStrategyAndWebBrowserState:(NSDictionary<NSString *, id> *)state completionHandler:(LSAppLinkOpenCompletionHandler)completionHandler;
+#endif
++ (void)openWithURL:(NSURL *)aURL completionHandler:(LSAppLinkOpenCompletionHandler)completionHandler;
 @property (readonly, strong) LSApplicationProxy *targetApplicationProxy;
+@end
+#endif
+
+@interface NSURL ()
+- (NSURL *)iTunesStoreURL;
 @end
 
 #if PLATFORM(MAC)
@@ -75,6 +91,7 @@ enum LSSessionID {
 
 typedef const struct CF_BRIDGED_TYPE(id) __LSASN* LSASNRef;
 typedef enum LSSessionID LSSessionID;
+typedef struct ProcessSerialNumber ProcessSerialNumber;
 
 WTF_EXTERN_C_BEGIN
 
@@ -82,6 +99,9 @@ extern const CFStringRef _kLSDisplayNameKey;
 
 LSASNRef _LSGetCurrentApplicationASN();
 OSStatus _LSSetApplicationInformationItem(LSSessionID, LSASNRef, CFStringRef keyToSetRef, CFTypeRef valueToSetRef, CFDictionaryRef* newInformationDictRef);
+CFTypeRef _LSCopyApplicationInformationItem(LSSessionID, LSASNRef, CFTypeRef);
+
+OSStatus _RegisterApplication(CFDictionaryRef, ProcessSerialNumber*);
 
 WTF_EXTERN_C_END
 

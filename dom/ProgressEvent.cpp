@@ -28,7 +28,7 @@
 
 namespace WebCore {
 
-ProgressEvent::ProgressEvent(const AtomicString& type, const Init& initializer, IsTrusted isTrusted)
+ProgressEvent::ProgressEvent(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
     : Event(type, initializer, isTrusted)
     , m_lengthComputable(initializer.lengthComputable)
     , m_loaded(initializer.loaded)
@@ -36,8 +36,8 @@ ProgressEvent::ProgressEvent(const AtomicString& type, const Init& initializer, 
 {
 }
 
-ProgressEvent::ProgressEvent(const AtomicString& type, bool lengthComputable, unsigned long long loaded, unsigned long long total)
-    : Event(type, false, false)
+ProgressEvent::ProgressEvent(const AtomString& type, bool lengthComputable, unsigned long long loaded, unsigned long long total)
+    : Event(type, CanBubble::No, IsCancelable::No)
     , m_lengthComputable(lengthComputable)
     , m_loaded(loaded)
     , m_total(total)
